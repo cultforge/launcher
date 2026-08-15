@@ -15,8 +15,8 @@ export type LauncherUpdateInfo = {
 };
 
 /**
- * Query GitHub Releases `latest.json` via the Tauri updater plugin.
- * Returns null when up to date, offline path, or not in a Tauri runtime.
+ * Query the CultForge updater feed (api.cultforge.com, then GitHub Releases)
+ * via the Tauri updater plugin.
  */
 export async function checkLauncherUpdate(): Promise<LauncherUpdateInfo | null> {
   if (!isTauriRuntime()) return null;

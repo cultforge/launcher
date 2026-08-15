@@ -1,5 +1,5 @@
 # CultForge Windows release pipeline
-# freeze → frontend build/test → signed tauri build → SHA256 + latest.json
+# freeze → frontend build/test → signed tauri build → SHA256 + latest.json (MSI preferred)
 $ErrorActionPreference = "Stop"
 $Root = Split-Path -Parent $PSScriptRoot
 Set-Location $Root
@@ -7,6 +7,7 @@ Set-Location $Root
 $SemVer = "2.4.0"
 $Display = "2.4 Generation 2"
 $GitHubRepo = if ($env:CULTFORGE_GITHUB_REPO) { $env:CULTFORGE_GITHUB_REPO } else { "cultforge/launcher" }
+$ApiFeedUrl = "https://api.cultforge.com/v1/launcher/updates/latest.json"
 $ReleaseDir = Join-Path $Root "dist-release"
 New-Item -ItemType Directory -Force -Path $ReleaseDir | Out-Null
 
@@ -20,19 +21,32 @@ function Assert-Contains([string]$Path, [string]$Needle, [string]$Label) {
 
 function Ensure-UpdaterSigning {
   if ($env:TAURI_SIGNING_PRIVATE_KEY) { return }
-  if ($env:TAURI_SIGNING_PRIVATE_KEY_PATH -and (Test-Path $env:TAURI_SIGNING_PRIVATE_KEY_PATH)) { return }
-  $defaultKey = Join-Path $env:USERPROFILE ".tauri\cultforge.key"
-  if (Test-Path $defaultKey) {
-    $env:TAURI_SIGNING_PRIVATE_KEY_PATH = $defaultKey
-    Write-Host "Using updater signing key: $defaultKey"
+  $keyPath = $null
+  if ($env:TAURI_SIGNING_PRIVATE_KEY_PATH -and (Test-Path $env:TAURI_SIGNING_PRIVATE_KEY_PATH)) {
+    $keyPath = $env:TAURI_SIGNING_PRIVATE_KEY_PATH
+  } else {
+    $defaultKey = Join-Path $env:USERPROFILE ".tauri\cultforge.key"
+    if (Test-Path $defaultKey) { $keyPath = $defaultKey }
+  }
+  if ($keyPath) {
+    # Tauri bundler reliably reads TAURI_SIGNING_PRIVATE_KEY (contents), not always PATH.
+    $env:TAURI_SIGNING_PRIVATE_KEY = [System.IO.File]::ReadAllText($keyPath).Trim()
+    Remove-Item Env:TAURI_SIGNING_PRIVATE_KEY_PATH -ErrorAction SilentlyContinue
+    Write-Host "Loaded updater signing key from: $keyPath"
     return
   }
   throw @"
 Updater signing key not found.
 Set TAURI_SIGNING_PRIVATE_KEY or TAURI_SIGNING_PRIVATE_KEY_PATH, or place the key at:
-  $defaultKey
+  $(Join-Path $env:USERPROFILE '.tauri\cultforge.key')
 See docs/launcher-updater.md
 "@
+}
+
+function Resolve-Sig([string]$ArtifactPath) {
+  $sig = "$ArtifactPath.sig"
+  if (Test-Path $sig) { return $sig }
+  return $null
 }
 
 Write-Host "== CultForge $Display release =="
@@ -65,53 +79,47 @@ Write-Host "3/5 npm test…"
 npm test
 if ($LASTEXITCODE -ne 0) { throw "npm test failed" }
 
-Write-Host "4/5 npm run tauri build (NSIS, then MSI)…"
-# NSIS first — primary ship + in-app updater artifact.
-npm run tauri -- build --bundles nsis
-if ($LASTEXITCODE -ne 0) { throw "tauri NSIS build failed" }
-
-$MsiOk = $true
-# Skip ICE validation as a safety net; main.wxs uses single-package authoring to avoid ICE38.
+Write-Host "4/5 npm run tauri build (MSI preferred, then NSIS)…"
 $env:TAURI_WIX_SKIP_MSI_VALIDATION = "true"
 npm run tauri -- build --bundles msi
+if ($LASTEXITCODE -ne 0) { throw "tauri MSI build failed" }
+
+npm run tauri -- build --bundles nsis
 if ($LASTEXITCODE -ne 0) {
-  Write-Warning "MSI bundle failed (WiX light.exe). NSIS is still shippable."
-  $MsiOk = $false
+  Write-Warning "NSIS bundle failed — MSI may still be shippable for updater."
 }
 
-$Nsis = $null
 $Msi = $null
-$NsisDir = Join-Path $Root "src-tauri\target\release\bundle\nsis"
+$Nsis = $null
 $MsiDir = Join-Path $Root "src-tauri\target\release\bundle\msi"
+$NsisDir = Join-Path $Root "src-tauri\target\release\bundle\nsis"
+$MsiCand = Get-ChildItem $MsiDir -Filter "*${SemVer}*.msi" -ErrorAction SilentlyContinue |
+  Sort-Object LastWriteTime -Descending | Select-Object -First 1
+if ($MsiCand) { $Msi = $MsiCand.FullName }
 $NsisCand = Get-ChildItem $NsisDir -Filter "*${SemVer}*setup.exe" -ErrorAction SilentlyContinue |
   Sort-Object LastWriteTime -Descending | Select-Object -First 1
 if ($NsisCand) { $Nsis = $NsisCand.FullName }
-if ($MsiOk) {
-  $MsiCand = Get-ChildItem $MsiDir -Filter "*${SemVer}*.msi" -ErrorAction SilentlyContinue |
-    Sort-Object LastWriteTime -Descending | Select-Object -First 1
-  if ($MsiCand) { $Msi = $MsiCand.FullName }
+
+if (-not $Msi) { throw "MSI installer not found for $SemVer" }
+
+$MsiName = Split-Path $Msi -Leaf
+$MsiSig = Resolve-Sig $Msi
+if (-not $MsiSig) {
+  throw "Missing updater signature for MSI ($Msi.sig). Ensure createUpdaterArtifacts and signing key are set."
 }
 
-if (-not $Nsis) { throw "NSIS installer not found for $SemVer" }
+$UpdaterArtifact = $Msi
+$UpdaterName = $MsiName
+$UpdaterSig = $MsiSig
+$UpdaterKind = "msi"
 
-$NsisName = Split-Path $Nsis -Leaf
-$NsisSig = "$Nsis.sig"
-if (-not (Test-Path $NsisSig)) {
-  # Some Tauri versions emit signature beside the installer with the same stem.
-  $altSig = Join-Path $NsisDir ($NsisName -replace '\.exe$', '.exe.sig')
-  if (Test-Path $altSig) { $NsisSig = $altSig }
-}
-if (-not (Test-Path $NsisSig)) {
-  throw "Missing updater signature for NSIS ($Nsis.sig). Ensure createUpdaterArtifacts and signing key are set."
-}
-
-$SigText = (Get-Content -Raw $NsisSig).Trim()
-$DownloadUrl = "https://github.com/$GitHubRepo/releases/download/v$SemVer/$NsisName"
+$SigText = (Get-Content -Raw $UpdaterSig).Trim()
+$DownloadUrl = "https://github.com/$GitHubRepo/releases/download/v$SemVer/$UpdaterName"
 $PubDate = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
 $Latest = [ordered]@{
-  version  = $SemVer
-  notes    = "CultForge $Display"
-  pub_date = $PubDate
+  version   = $SemVer
+  notes     = "CultForge $Display"
+  pub_date  = $PubDate
   platforms = [ordered]@{
     "windows-x86_64" = [ordered]@{
       signature = $SigText
@@ -120,10 +128,25 @@ $Latest = [ordered]@{
   }
 }
 $LatestPath = Join-Path $ReleaseDir "latest.json"
-$Latest | ConvertTo-Json -Depth 6 | Set-Content -Encoding utf8 $LatestPath
+# UTF-8 without BOM — Tauri updater is picky about JSON encoding.
+[System.IO.File]::WriteAllText(
+  $LatestPath,
+  ($Latest | ConvertTo-Json -Depth 6),
+  [System.Text.UTF8Encoding]::new($false)
+)
 
-Copy-Item -Force $Nsis (Join-Path $ReleaseDir $NsisName)
-Copy-Item -Force $NsisSig (Join-Path $ReleaseDir "$NsisName.sig")
+Copy-Item -Force $Msi (Join-Path $ReleaseDir $MsiName)
+Copy-Item -Force $MsiSig (Join-Path $ReleaseDir "$MsiName.sig")
+Copy-Item -Force $LatestPath (Join-Path $ReleaseDir "latest.json")
+
+if ($Nsis) {
+  $NsisName = Split-Path $Nsis -Leaf
+  $NsisSig = Resolve-Sig $Nsis
+  Copy-Item -Force $Nsis (Join-Path $ReleaseDir $NsisName)
+  if ($NsisSig) {
+    Copy-Item -Force $NsisSig (Join-Path $ReleaseDir "$NsisName.sig")
+  }
+}
 
 Write-Host "5/5 writing checksums…"
 function Sha256Of([string]$Path) {
@@ -136,49 +159,45 @@ $lines = @(
   "semver=$SemVer",
   "built=$(Get-Date -Format o)",
   "github_repo=$GitHubRepo",
-  "updater_url=$DownloadUrl",
+  "updater_artifact=$UpdaterKind",
+  "updater_download=$DownloadUrl",
+  "api_feed=$ApiFeedUrl",
+  "github_feed=https://github.com/$GitHubRepo/releases/latest/download/latest.json",
   "",
   "SHA256 dist-sidecar/client.exe",
   (Sha256Of $Sidecar),
   "",
-  "SHA256 NSIS",
-  $Nsis,
-  (Sha256Of $Nsis),
+  "SHA256 MSI",
+  $Msi,
+  (Sha256Of $Msi),
   "",
-  "SHA256 NSIS.sig",
-  $NsisSig,
-  (Sha256Of $NsisSig),
+  "SHA256 MSI.sig",
+  $MsiSig,
+  (Sha256Of $MsiSig),
   "",
   "Updater feed: $LatestPath"
 )
-if ($Msi) {
+if ($Nsis) {
   $lines += @(
     "",
-    "SHA256 MSI",
-    $Msi,
-    (Sha256Of $Msi)
-  )
-} else {
-  $lines += @(
-    "",
-    "MSI: not produced (WiX light.exe failed — ship NSIS)"
+    "SHA256 NSIS",
+    $Nsis,
+    (Sha256Of $Nsis)
   )
 }
 $lines += @(
   "",
-  "GitHub Releases upload (updater):",
+  "GitHub Releases upload:",
   "  gh release create v$SemVer --repo $GitHubRepo --title `"CultForge $Display`" --notes `"CultForge $Display`" ``",
   "    `"$LatestPath`" ``",
-  "    `"$(Join-Path $ReleaseDir $NsisName)`" ``",
-  "    `"$(Join-Path $ReleaseDir "$NsisName.sig")`"",
-  "  (Attach MSI separately if shipping; in-app updater uses NSIS + latest.json only.)",
+  "    `"$(Join-Path $ReleaseDir $MsiName)`" ``",
+  "    `"$(Join-Path $ReleaseDir "$MsiName.sig")`"",
+  "",
+  "API live channel: proxy $ApiFeedUrl → GitHub latest.json (see docs/launcher-updater.md).",
   "",
   "Smoke gate (manual):",
   "- Installed app auth + quiet sidecar log",
-  "- Guild build URL + file icon/cover upload",
-  "- Datapack save/reload",
-  "- Guild install (clear error OK if manifest API missing)",
-  "- Launcher updater: install older build, publish this release, Updates → Update",
+  "- Launcher updater via api then GitHub fallback",
   "- docs/admin-smoke-checklist.md",
   "- docs/launcher-updater.md"
 )
@@ -186,15 +205,15 @@ $lines | Set-Content -Encoding utf8 $ManifestPath
 
 Write-Host ""
 Write-Host "Release artifacts ready:"
-Write-Host "  $Nsis"
-Write-Host "  $NsisSig"
+Write-Host "  $Msi"
+Write-Host "  $MsiSig"
 Write-Host "  $LatestPath"
-if ($Msi) { Write-Host "  $Msi" }
+if ($Nsis) { Write-Host "  $Nsis" }
 Write-Host "  $ManifestPath"
 Write-Host ""
 Write-Host "Publish with:"
 Write-Host "  gh release create v$SemVer --repo $GitHubRepo --title `"CultForge $Display`" --notes `"CultForge $Display`" ``"
 Write-Host "    `"$LatestPath`" ``"
-Write-Host "    `"$(Join-Path $ReleaseDir $NsisName)`" ``"
-Write-Host "    `"$(Join-Path $ReleaseDir "$NsisName.sig")`""
+Write-Host "    `"$(Join-Path $ReleaseDir $MsiName)`" ``"
+Write-Host "    `"$(Join-Path $ReleaseDir "$MsiName.sig")`""
 Write-Host "Done."
