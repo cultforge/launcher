@@ -146,12 +146,7 @@ pub fn ensure_mping_broker() -> Result<String, String> {
         .stdout(Stdio::null())
         .stderr(Stdio::null());
 
-    #[cfg(windows)]
-    {
-        use std::os::windows::process::CommandExt;
-        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
-        cmd.creation_flags(CREATE_NO_WINDOW);
-    }
+    crate::win_proc::apply_no_window(&mut cmd);
 
     let child = cmd
         .spawn()
@@ -167,7 +162,7 @@ pub fn ensure_mping_broker() -> Result<String, String> {
 
 pub fn kill_mping_broker() {
     if let Some(mut child) = MPING_CHILD.lock().unwrap().take() {
-        let _ = child.kill();
-        let _ = child.wait();
+        crate::win_proc::kill_tree(&mut child);
     }
+    crate::win_proc::kill_image(BROKER_EXE);
 }

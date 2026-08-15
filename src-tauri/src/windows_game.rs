@@ -2,6 +2,8 @@
 
 use std::process::{Command, Stdio};
 
+use crate::win_proc;
+
 #[cfg(target_os = "windows")]
 #[link(name = "shell32")]
 unsafe extern "system" {
@@ -48,11 +50,14 @@ if (-not $exists) {{
 }}
 "#
         );
-        let _ = Command::new("powershell")
-            .args(["-NoProfile", "-Command", &script])
+        // Fire-and-forget: waiting on powershell.status() blocked the UI thread ~1–3s at boot.
+        let mut cmd = Command::new("powershell");
+        cmd.args(["-NoProfile", "-WindowStyle", "Hidden", "-Command", &script])
+            .stdin(Stdio::null())
             .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .status();
+            .stderr(Stdio::null());
+        win_proc::apply_no_window(&mut cmd);
+        let _ = cmd.spawn();
     }
     #[cfg(not(target_os = "windows"))]
     {
@@ -60,6 +65,12 @@ if (-not $exists) {{
     }
 }
 
+/// Cheap AUMID only — safe on the UI thread.
+pub fn set_app_user_model_id() {
+    set_aumid();
+}
+
+/// Registry Game Bar registration (may spawn PowerShell). Call off the UI thread.
 pub fn register_process_as_game() {
     set_aumid();
     if let Ok(exe) = std::env::current_exe() {

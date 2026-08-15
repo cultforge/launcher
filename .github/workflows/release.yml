@@ -1,0 +1,157 @@
+name: Build CultForge
+
+# Tag or manual dispatch → Linux + macOS (+ optional Windows) installers.
+# Windows day-to-day releases still use local `npm run release:windows`
+# because frozen *.exe sidecars are gitignored.
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag to attach artifacts to (e.g. v2.4.0)"
+        required: true
+        default: "v2.4.0"
+      platforms:
+        description: "Comma list: linux,macos,windows"
+        required: true
+        default: "linux,macos"
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - id: linux
+            platform: ubuntu-22.04
+            args: "--bundles appimage,deb"
+          - id: macos
+            platform: macos-latest
+            args: "--bundles dmg"
+          - id: windows
+            platform: windows-latest
+            args: "--bundles msi,nsis"
+
+    runs-on: ${{ matrix.platform }}
+    if: |
+      (github.event_name == 'push') ||
+      (github.event_name == 'workflow_dispatch' && contains(github.event.inputs.platforms, matrix.id))
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install Linux dependencies
+        if: matrix.id == 'linux'
+        run: |
+          sudo apt update
+          sudo apt install -y \
+            libwebkit2gtk-4.1-dev \
+            build-essential \
+            curl \
+            wget \
+            file \
+            libxdo-dev \
+            libssl-dev \
+            libayatana-appindicator3-dev \
+            librsvg2-dev \
+            libgtk-3-dev \
+            patchelf
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install frontend dependencies
+        run: npm ci
+
+      - name: Prepare tauri.conf for this OS
+        shell: bash
+        env:
+          MATRIX_ID: ${{ matrix.id }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+        run: |
+          node <<'NODE'
+          const fs = require("fs");
+          const path = "src-tauri/tauri.conf.json";
+          const c = JSON.parse(fs.readFileSync(path, "utf8"));
+          const id = process.env.MATRIX_ID;
+          if (id === "linux") {
+            c.bundle.targets = ["appimage", "deb"];
+            // Windows-only sidecar/install scripts are not in git and not usable on Linux.
+            c.bundle.resources = [];
+          } else if (id === "macos") {
+            c.bundle.targets = ["dmg"];
+            c.bundle.resources = [];
+          } else {
+            c.bundle.targets = ["msi", "nsis"];
+          }
+          if (!process.env.TAURI_SIGNING_PRIVATE_KEY) {
+            c.bundle.createUpdaterArtifacts = false;
+          }
+          fs.writeFileSync(path, JSON.stringify(c, null, 2) + "\n");
+          console.log("Prepared", path, "for", id);
+          NODE
+
+      - name: Fetch Windows sidecars from existing release
+        if: matrix.id == 'windows'
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          New-Item -ItemType Directory -Force -Path src-tauri/resources | Out-Null
+          $tag = if ("${{ github.event_name }}" -eq "workflow_dispatch") { "${{ github.event.inputs.tag }}" } else { "${{ github.ref_name }}" }
+          gh release download $tag --repo cultforge/launcher --dir dist-release-dl --pattern "CultForge_*" 2>$null
+          # Prefer committed workspace binaries if present; else leave verify to fail clearly.
+          $needed = @("client.exe","scanner.exe","ctfgbroker.exe")
+          foreach ($n in $needed) {
+            $local = Join-Path "src-tauri/resources" $n
+            if (-not (Test-Path $local)) {
+              Write-Host "Missing $local — Windows CI needs sidecars (run sidecar:freeze locally or commit resources)."
+            }
+          }
+          Get-ChildItem src-tauri/resources -ErrorAction SilentlyContinue | Format-Table Name,Length
+
+      - name: Verify Windows sidecars
+        if: matrix.id == 'windows'
+        shell: pwsh
+        run: |
+          foreach ($n in @("client.exe","scanner.exe","ctfgbroker.exe")) {
+            $p = "src-tauri/resources/$n"
+            if (-not (Test-Path $p)) { throw "Missing $p" }
+          }
+
+      - name: Resolve release tag
+        id: meta
+        shell: bash
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "tag=${{ github.event.inputs.tag }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "tag=${{ github.ref_name }}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Build Tauri
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          TAURI_WIX_SKIP_MSI_VALIDATION: "true"
+        with:
+          tagName: ${{ steps.meta.outputs.tag }}
+          releaseName: "CultForge ${{ steps.meta.outputs.tag }}"
+          releaseBody: "CultForge Launcher ${{ steps.meta.outputs.tag }} (Windows + Linux + macOS)."
+          releaseDraft: false
+          prerelease: false
+          args: ${{ matrix.args }}

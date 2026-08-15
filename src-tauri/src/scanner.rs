@@ -6,12 +6,17 @@ use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Child, ChildStdin, Command, Stdio};
 use std::sync::Mutex;
+use std::time::{Duration, Instant};
 use tauri::{AppHandle, Emitter};
 use tokio::sync::oneshot;
+
+use crate::win_proc;
 
 const ALLOWED_METHODS: &[&str] =
     &["scan_mods", "scan_mod", "scan_world", "scan_worlds", "scan_builds"];
 const CALL_TIMEOUT_SECS: u64 = 180;
+/// After a crash/exit, do not respawn immediately (avoids console flash loops).
+const RESPAWN_COOLDOWN: Duration = Duration::from_secs(5);
 
 struct ScannerProc {
     child: Child,
@@ -22,6 +27,13 @@ static SCANNER: Lazy<Mutex<Option<ScannerProc>>> = Lazy::new(|| Mutex::new(None)
 static NEXT_ID: Lazy<Mutex<u64>> = Lazy::new(|| Mutex::new(1));
 static PENDING: Lazy<Mutex<HashMap<u64, oneshot::Sender<Result<Value, String>>>>> =
     Lazy::new(|| Mutex::new(HashMap::new()));
+static LAST_EXIT_AT: Lazy<Mutex<Option<Instant>>> = Lazy::new(|| Mutex::new(None));
+
+fn mark_scanner_exit() {
+    if let Ok(mut slot) = LAST_EXIT_AT.lock() {
+        *slot = Some(Instant::now());
+    }
+}
 
 fn scanner_exe_path() -> PathBuf {
     if let Ok(p) = std::env::var("CULTFORGE_SCANNER") {
@@ -74,7 +86,7 @@ fn fail_all_pending(reason: &str) {
     }
 }
 
-fn spawn_scanner(app: &AppHandle) -> Result<(), String> {
+fn spawn_scanner_into(app: &AppHandle, slot: &mut Option<ScannerProc>) -> Result<(), String> {
     let exe = scanner_exe_path();
     if !exe.exists() {
         return Err(format!(
@@ -88,21 +100,23 @@ fn spawn_scanner(app: &AppHandle) -> Result<(), String> {
         .map(|p| p.to_path_buf())
         .unwrap_or_else(|| PathBuf::from("."));
 
-    let mut child = Command::new(&exe);
-    child
+    let mut child_cmd = Command::new(&exe);
+    child_cmd
         .current_dir(&workdir)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::null());
-    #[cfg(windows)]
-    {
-        use std::os::windows::process::CommandExt;
-        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
-        child.creation_flags(CREATE_NO_WINDOW);
-    }
-    let mut child = child
+    win_proc::apply_no_window(&mut child_cmd);
+    let mut child = child_cmd
         .spawn()
         .map_err(|e| format!("Failed to spawn scanner.exe: {e}"))?;
+
+    // If it dies instantly, surface that instead of entering a respawn storm.
+    // Non-blocking poll (no sleep) — boot must not stall the UI thread.
+    if let Ok(Some(status)) = child.try_wait() {
+        mark_scanner_exit();
+        return Err(format!("scanner.exe exited immediately ({status})"));
+    }
 
     let stdin = child
         .stdin
@@ -151,36 +165,64 @@ fn spawn_scanner(app: &AppHandle) -> Result<(), String> {
         }
         // Process ended; unblock any waiters and clear the handle.
         fail_all_pending("scanner.exe exited");
+        mark_scanner_exit();
         if let Ok(mut slot) = SCANNER.lock() {
             *slot = None;
         }
     });
 
-    *SCANNER.lock().map_err(|_| "scanner state poisoned")? = Some(ScannerProc { child, stdin });
+    *slot = Some(ScannerProc { child, stdin });
     eprintln!("[cultforge] Spawned scanner.exe from {}", exe.display());
     Ok(())
 }
 
 fn ensure_scanner(app: &AppHandle) -> Result<(), String> {
-    {
-        let mut slot = SCANNER.lock().map_err(|_| "scanner state poisoned")?;
-        if let Some(proc) = slot.as_mut() {
-            match proc.child.try_wait() {
-                Ok(None) => return Ok(()),
-                _ => *slot = None,
+    let mut slot = SCANNER.lock().map_err(|_| "scanner state poisoned")?;
+    if let Some(proc) = slot.as_mut() {
+        match proc.child.try_wait() {
+            Ok(None) => return Ok(()),
+            Ok(Some(status)) => {
+                eprintln!("[cultforge] scanner.exe exited: {status}");
+                mark_scanner_exit();
+                *slot = None;
+            }
+            Err(e) => {
+                eprintln!("[cultforge] scanner.exe status error: {e}");
+                mark_scanner_exit();
+                *slot = None;
             }
         }
     }
-    spawn_scanner(app)
+
+    if let Ok(guard) = LAST_EXIT_AT.lock() {
+        if let Some(at) = *guard {
+            if at.elapsed() < RESPAWN_COOLDOWN {
+                return Err(format!(
+                    "scanner.exe unavailable (cooldown {}s after exit)",
+                    RESPAWN_COOLDOWN.as_secs()
+                ));
+            }
+        }
+    }
+
+    spawn_scanner_into(app, &mut slot)
 }
 
 pub fn kill_scanner() {
     fail_all_pending("scanner shutting down");
     if let Ok(mut slot) = SCANNER.lock() {
         if let Some(mut proc) = slot.take() {
-            let _ = proc.child.kill();
-            let _ = proc.child.wait();
+            win_proc::kill_tree(&mut proc.child);
         }
+    }
+    win_proc::kill_image("scanner.exe");
+}
+
+/// Start scanner once at app boot so Builds rescans reuse a hidden process
+/// instead of flashing a new console (~700ms) on every content scan.
+pub fn warm_scanner(app: &AppHandle) {
+    if let Err(e) = ensure_scanner(app) {
+        eprintln!("[cultforge] scanner warm-start: {e}");
     }
 }
 

@@ -71,6 +71,12 @@ export type DiscoverGuildCard = {
   banner_url?: string | null;
   member_count?: number;
   is_publicly_listed?: boolean;
+  is_featured?: boolean;
+  tags?: string[];
+  server_count?: number;
+  build_count?: number;
+  share_url?: string;
+  deep_link?: string;
 };
 
 function kindFromRemote(kind: string): AlertKind {

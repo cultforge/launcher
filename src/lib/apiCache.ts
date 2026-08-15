@@ -119,6 +119,7 @@ export const CacheKeys = {
   guildChannels: (id: string) => `cache.guilds.channels.${id}`,
   channelMessages: (id: string) => `cache.guilds.channel.messages.${id}`,
   guildDiscover: "cache.guilds.discover",
+  newsFeed: "cache.news.feed",
   guildSnapshot: "cache.guilds.snapshot",
   notifications: "cache.api.notifications",
   pendingInvites: "cache.invite.pending",

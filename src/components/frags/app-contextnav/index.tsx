@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import {
   useDownloadStore,
   useNavigationStore,
@@ -14,7 +14,7 @@ import {
   totalUpdateSizeLabel,
   type UpdateFilter,
 } from "../../../data/updates";
-import { NEWS_FEED, DISCOVER_FILTERS } from "../../../data/news";
+import { DISCOVER_FILTERS } from "../../../data/news";
 import { useDiscoverStore } from "../../../stores/discover";
 import { useUpdatesStore } from "../../../stores/updates";
 import { useBuildStore } from "../../../stores/build";
@@ -389,8 +389,15 @@ function HomeGuildContext() {
 function HomeDiscoverContext() {
   const category = useDiscoverStore((s) => s.category);
   const setCategory = useDiscoverStore((s) => s.setCategory);
-  const reading = NEWS_FEED.slice(0, 3);
-  const lead = NEWS_FEED[0];
+  const stories = useDiscoverStore((s) => s.stories);
+  const refresh = useDiscoverStore((s) => s.refresh);
+  const filteredStories = useDiscoverStore((s) => s.filteredStories);
+  const reading = filteredStories().slice(0, 3);
+  const lead = reading[0];
+
+  useEffect(() => {
+    void refresh();
+  }, [refresh]);
 
   return (
     <Shell>
@@ -478,7 +485,7 @@ function HomeDiscoverContext() {
         </span>
         <div className="flex justify-between text-[12px] text-text-secondary">
           <span>Stories</span>
-          <span className="text-text-primary font-semibold">{NEWS_FEED.length}</span>
+          <span className="text-text-primary font-semibold">{stories.length}</span>
         </div>
         <div className="flex justify-between text-[12px] text-text-secondary">
           <span>Filter</span>

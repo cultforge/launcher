@@ -34,7 +34,7 @@ from ctfgsdk.schema import (
     UserHandleUpdateRequest,
 )
 
-APP_VERSION = "2.4.2"
+APP_VERSION = "2.4.0"
 ws_connections: set[WebSocket] = set()
 
 LOG_LEVELS = {"DEBUG", "INFO", "SUCCESS", "WARNING", "ERROR", "CRITICAL", "EXCEPTION"}
@@ -62,6 +62,7 @@ PRESENCE_WS_URL = "wss://api.cultforge.com/v1/ws"
 # Guild chat bridge: forward guild.chat.* / guild.channel.* frames.
 GUILDS_WS_URL = "wss://guilds.cultforge.com/v1/ws"
 API_BASE = "https://api.cultforge.com"
+GUILDS_BASE = "https://guilds.cultforge.com"
 AUTH_BASE = "https://auth.cultforge.com"
 LOOPBACK_HEADER = "X-CultForge-Loopback-Secret"
 LOOPBACK_QUERY = "cf_loopback"
@@ -1482,12 +1483,19 @@ app = FastAPI(title="CultForge Client", version=APP_VERSION, lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
+    # Dev Vite + Tauri webview origins. Windows WebView2 defaults to
+    # http://tauri.localhost (not https) — missing that marks the UI "offline"
+    # even while client.exe is healthy and talking to the remote API.
     allow_origins=[
         "http://localhost:1420",
         "http://127.0.0.1:1420",
         "tauri://localhost",
+        "http://tauri.localhost",
         "https://tauri.localhost",
+        "http://ipc.localhost",
+        "https://ipc.localhost",
     ],
+    allow_origin_regex=r"https?://(localhost|127\.0\.0\.1|tauri\.localhost|ipc\.localhost)(:\d+)?",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -1582,8 +1590,31 @@ def _disk_root() -> str:
     return os.getcwd()
 
 
+_nvidia_cache: tuple[float, tuple[float | None, float | None, float | None]] | None = None
+_NVIDIA_CACHE_TTL = 2.5
+
+
+def _subprocess_hidden_kwargs() -> dict[str, Any]:
+    """Avoid flashing a console when spawning Windows CLI helpers (nvidia-smi)."""
+    if sys.platform != "win32":
+        return {}
+    # CREATE_NO_WINDOW = 0x08000000 — available on Python 3.7+ as subprocess constant.
+    flags = getattr(subprocess, "CREATE_NO_WINDOW", 0x08000000)
+    return {"creationflags": flags}
+
+
 def _nvidia_metrics() -> tuple[float | None, float | None, float | None]:
-    """Return (gpu_percent, vram_used_gb, vram_total_gb) or nulls."""
+    """Return (gpu_percent, vram_used_gb, vram_total_gb) or nulls.
+
+    nvidia-smi is a console PE; without CREATE_NO_WINDOW each metrics poll
+    flashes a window for ~700ms (Builds performance charts poll every 2s).
+    """
+    global _nvidia_cache
+    now = time.monotonic()
+    if _nvidia_cache is not None:
+        cached_at, cached_vals = _nvidia_cache
+        if now - cached_at < _NVIDIA_CACHE_TTL:
+            return cached_vals
     try:
         completed = subprocess.run(
             [
@@ -1595,9 +1626,12 @@ def _nvidia_metrics() -> tuple[float | None, float | None, float | None]:
             text=True,
             timeout=1.5,
             check=False,
+            **_subprocess_hidden_kwargs(),
         )
         if completed.returncode != 0 or not completed.stdout.strip():
-            return None, None, None
+            vals: tuple[float | None, float | None, float | None] = (None, None, None)
+            _nvidia_cache = (now, vals)
+            return vals
         # Multi-GPU: average utilization, sum VRAM.
         gpu_vals: list[float] = []
         vram_used = 0.0
@@ -1610,14 +1644,20 @@ def _nvidia_metrics() -> tuple[float | None, float | None, float | None]:
             vram_used += float(parts[1]) / 1024.0
             vram_total += float(parts[2]) / 1024.0
         if not gpu_vals:
-            return None, None, None
-        return (
+            vals = (None, None, None)
+            _nvidia_cache = (now, vals)
+            return vals
+        vals = (
             round(sum(gpu_vals) / len(gpu_vals), 1),
             round(vram_used, 2),
             round(vram_total, 2),
         )
+        _nvidia_cache = (now, vals)
+        return vals
     except Exception:
-        return None, None, None
+        vals = (None, None, None)
+        _nvidia_cache = (now, vals)
+        return vals
 
 
 def collect_system_metrics() -> dict[str, Any]:
@@ -3124,6 +3164,123 @@ async def admin_request_proxy(request: Request) -> JSONResponse:
     if not isinstance(data, dict):
         data = {"status": True, "data": data, "code": response.status_code}
     return JSONResponse(status_code=response.status_code, content=data)
+
+
+async def _upstream_json(
+    method: str,
+    base: str,
+    path: str,
+    *,
+    require_session: bool = True,
+) -> JSONResponse:
+    """Authenticated JSON proxy to api/guilds hosts (Discover news + guild directory)."""
+    try:
+        headers = _api_auth_headers(require_session=require_session)
+    except PermissionError as exc:
+        return JSONResponse(
+            status_code=401,
+            content={"status": False, "message": str(exc), "code": 401},
+        )
+    url = f"{base}{path}"
+    http = getattr(getattr(app, "state", None), "http", None)
+    try:
+        if http is None:
+            async with httpx.AsyncClient(timeout=30.0, follow_redirects=True) as client:
+                response = await client.request(method.upper(), url, headers=headers)
+        else:
+            response = await http.request(method.upper(), url, headers=headers)
+        try:
+            data = response.json()
+        except Exception:
+            data = {
+                "status": False,
+                "message": (response.text or "")[:300],
+                "code": response.status_code,
+            }
+        if not isinstance(data, dict):
+            data = {"status": True, "data": data, "code": response.status_code}
+        return JSONResponse(status_code=response.status_code, content=data)
+    except Exception as exc:
+        await emit_log("WARNING", f"Upstream {method} {path} failed: {exc}")
+        return JSONResponse(
+            status_code=502,
+            content={
+                "status": False,
+                "message": "Upstream service unreachable",
+                "data": {"debug": str(exc)},
+                "code": 502,
+            },
+        )
+
+
+@app.get("/news/feed")
+async def news_feed(
+    query: str | None = None,
+    kinds: str | None = None,
+    offset: int = 0,
+    limit: int = 30,
+) -> JSONResponse:
+    from urllib.parse import urlencode
+
+    params: dict[str, Any] = {"offset": int(offset), "limit": int(limit)}
+    if query:
+        params["query"] = query
+    if kinds:
+        params["kinds"] = kinds
+    return await _upstream_json(
+        "GET", API_BASE, f"/v1/news/feed?{urlencode(params)}", require_session=True
+    )
+
+
+@app.get("/updates")
+async def list_platform_updates(
+    query: str | None = None,
+    channel: str | None = None,
+    severity: str | None = None,
+    offset: int = 0,
+    limit: int = 30,
+) -> JSONResponse:
+    from urllib.parse import urlencode
+
+    params: dict[str, Any] = {"offset": int(offset), "limit": int(limit)}
+    if query:
+        params["query"] = query
+    if channel:
+        params["channel"] = channel
+    if severity:
+        params["severity"] = severity
+    return await _upstream_json(
+        "GET", API_BASE, f"/v1/updates?{urlencode(params)}", require_session=True
+    )
+
+
+@app.get("/guilds/discover")
+async def guilds_discover(
+    query: str | None = None,
+    tag: str | None = None,
+    sort: str = "newest",
+    featured: bool = False,
+    offset: int = 0,
+    limit: int = 50,
+) -> JSONResponse:
+    from urllib.parse import urlencode
+
+    params: dict[str, Any] = {
+        "sort": sort,
+        "featured": str(bool(featured)).lower(),
+        "offset": int(offset),
+        "limit": int(limit),
+    }
+    if query:
+        params["query"] = query
+    if tag:
+        params["tag"] = tag
+    return await _upstream_json(
+        "GET",
+        GUILDS_BASE,
+        f"/v1/guilds/discover?{urlencode(params)}",
+        require_session=False,
+    )
 
 
 @app.get("/send/{module}/{command}")

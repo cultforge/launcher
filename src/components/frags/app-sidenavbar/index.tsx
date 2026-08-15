@@ -10,6 +10,7 @@ import { SideMenus } from "../../../manifest";
 import { useThemeStore } from "../../../stores/theme";
 import { useProfileRouteStore } from "../../../stores/profileRoute";
 import { useAdminSessionStore } from "../../../stores/adminSession";
+import { useUpdatesStore } from "../../../stores/updates";
 import { useMemo } from "react";
 
 function SideBadge({ badge }: { badge: string | number }) {
@@ -122,11 +123,23 @@ function NavigationBar({ collapsed, onToggle }: Omit<NavigationBarProps, "smenu"
     (s) => s.sideNavPreview ?? s.sideNavVariant,
   );
   const isPlatformAdmin = useAdminSessionStore((s) => s.isPlatformAdmin);
+  const pendingUpdates = useUpdatesStore(
+    (s) => s.items.filter((u) => u.status !== "done").length,
+  );
 
   const smenu = useMemo(() => {
-    const base = SideMenus.Home;
-    if (!isPlatformAdmin) return base;
-    return base.map((section) => {
+    const withLiveBadges = SideMenus.Home.map((section) => ({
+      ...section,
+      options: section.options.map((item) => {
+        if (item.label !== "Updates") return item;
+        return {
+          ...item,
+          badge: pendingUpdates > 0 ? pendingUpdates : undefined,
+        };
+      }),
+    }));
+    if (!isPlatformAdmin) return withLiveBadges;
+    return withLiveBadges.map((section) => {
       if (section.section !== "Account") return section;
       return {
         ...section,
@@ -140,7 +153,7 @@ function NavigationBar({ collapsed, onToggle }: Omit<NavigationBarProps, "smenu"
         ],
       };
     });
-  }, [isPlatformAdmin]);
+  }, [isPlatformAdmin, pendingUpdates]);
 
   if (primaryTab === "Store") return null;
 

@@ -5,7 +5,7 @@ use std::path::PathBuf;
 use std::process::{Child, Command, Stdio};
 use std::sync::Mutex;
 use serde::Serialize;
-use tauri::{Manager, RunEvent};
+use tauri::{Manager, RunEvent, WindowEvent};
 
 mod content_cache;
 mod downloads;
@@ -23,6 +23,7 @@ mod windows_game;
 mod secrets;
 mod local_assistant;
 mod mping;
+mod win_proc;
 
 static PORT: Lazy<Mutex<u16>> = Lazy::new(|| {
     let listener = TcpListener::bind("127.0.0.1:0").expect("Failed to bind to free port");
@@ -71,6 +72,8 @@ fn get_sidecar_info() -> SidecarInfo {
 const SIDECAR_EXE_NAME: &str = "client.exe";
 /// Legacy freeze name — still accepted if present next to the app.
 const SIDECAR_EXE_LEGACY: &str = "cultforge-sidecar.exe";
+#[cfg(not(windows))]
+const SIDECAR_UNIX_NAME: &str = "client";
 const CLIENT_PY_NAME: &str = "client.py";
 
 fn look_for_sidecar_named(name: &str) -> Option<PathBuf> {
@@ -113,7 +116,11 @@ fn look_for_sidecar_named(name: &str) -> Option<PathBuf> {
         return Some(workspace);
     }
 
-    if name == SIDECAR_EXE_NAME || name == SIDECAR_EXE_LEGACY {
+    let check_dist = name == SIDECAR_EXE_NAME
+        || name == SIDECAR_EXE_LEGACY
+        || name == CLIENT_PY_NAME
+        || name == "client";
+    if check_dist {
         let dist = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
             .join("..")
             .join("dist-sidecar")
@@ -138,7 +145,8 @@ fn look_for_sidecar_named(name: &str) -> Option<PathBuf> {
     None
 }
 
-/// Prefer frozen sidecar exe; fall back to client.py for local dev.
+/// Prefer frozen sidecar. Windows release requires `client.exe`.
+/// Linux/macOS may use a native `client` binary, or `client.py` when present.
 fn resolve_sidecar() -> Result<(PathBuf, bool), String> {
     if let Some(exe) = look_for_sidecar_named(SIDECAR_EXE_NAME) {
         return Ok((exe, true));
@@ -146,12 +154,33 @@ fn resolve_sidecar() -> Result<(PathBuf, bool), String> {
     if let Some(exe) = look_for_sidecar_named(SIDECAR_EXE_LEGACY) {
         return Ok((exe, true));
     }
-    if let Some(py) = look_for_sidecar_named(CLIENT_PY_NAME) {
-        return Ok((py, false));
+    #[cfg(not(windows))]
+    {
+        if let Some(bin) = look_for_sidecar_named(SIDECAR_UNIX_NAME) {
+            return Ok((bin, true));
+        }
+        if let Some(py) = look_for_sidecar_named(CLIENT_PY_NAME) {
+            return Ok((py, false));
+        }
     }
-    Err(format!(
-        "{SIDECAR_EXE_NAME} / {CLIENT_PY_NAME} not found. Run `npm run sidecar:freeze` or place client.py next to the workspace root (or set CULTFORGE_CLIENT_PY)."
-    ))
+    #[cfg(all(windows, debug_assertions))]
+    {
+        if let Some(py) = look_for_sidecar_named(CLIENT_PY_NAME) {
+            return Ok((py, false));
+        }
+    }
+    #[cfg(windows)]
+    {
+        Err(format!(
+            "{SIDECAR_EXE_NAME} not found next to CultForge / resources. Run `npm run sidecar:freeze` (Windows release never uses client.py)."
+        ))
+    }
+    #[cfg(not(windows))]
+    {
+        Err(format!(
+            "{SIDECAR_UNIX_NAME} / {CLIENT_PY_NAME} not found next to CultForge. Place a frozen client binary or client.py beside the app."
+        ))
+    }
 }
 
 fn find_python() -> Option<&'static str> {
@@ -212,12 +241,7 @@ fn spawn_client(port: u16) -> Result<(), String> {
             .current_dir(&workdir)
             .stdout(Stdio::from(log_file))
             .stderr(Stdio::from(log_err));
-        #[cfg(windows)]
-        {
-            use std::os::windows::process::CommandExt;
-            const CREATE_NO_WINDOW: u32 = 0x0800_0000;
-            cmd.creation_flags(CREATE_NO_WINDOW);
-        }
+        win_proc::apply_no_window(&mut cmd);
         cmd.spawn()
             .map_err(|e| format!("Failed to spawn {SIDECAR_EXE_NAME}: {e}"))?
     } else {
@@ -237,12 +261,7 @@ fn spawn_client(port: u16) -> Result<(), String> {
             .current_dir(&workdir)
             .stdout(Stdio::from(log_file))
             .stderr(Stdio::from(log_err));
-        #[cfg(windows)]
-        {
-            use std::os::windows::process::CommandExt;
-            const CREATE_NO_WINDOW: u32 = 0x0800_0000;
-            cmd.creation_flags(CREATE_NO_WINDOW);
-        }
+        win_proc::apply_no_window(&mut cmd);
         cmd.spawn()
             .map_err(|e| format!("Failed to spawn client.py: {e}"))?
     };
@@ -261,9 +280,47 @@ fn spawn_client(port: u16) -> Result<(), String> {
 
 fn kill_client() {
     if let Some(mut child) = CLIENT_CHILD.lock().unwrap().take() {
-        let _ = child.kill();
-        let _ = child.wait();
+        win_proc::kill_tree(&mut child);
     }
+    // Nuitka onefile / orphans from previous crashes
+    win_proc::kill_image("client.exe");
+    win_proc::kill_image("cultforge-sidecar.exe");
+}
+
+fn cleanup_helpers() {
+    kill_client();
+    mping::kill_mping_broker();
+    scanner::kill_scanner();
+    win_proc::kill_image("scanner.exe");
+    win_proc::kill_image("ctfgbroker.exe");
+}
+
+/// Hide UI immediately, tear down helpers off-thread, then exit.
+fn quit_app(app: &tauri::AppHandle) {
+    if let Some(window) = app.get_webview_window("main") {
+        let _ = window.hide();
+    }
+    let handle = app.clone();
+    std::thread::spawn(move || {
+        let _ = launch::stop_minecraft();
+        cleanup_helpers();
+        // Give taskkill a beat to detach, then exit without blocking the UI.
+        std::thread::sleep(std::time::Duration::from_millis(150));
+        handle.exit(0);
+    });
+}
+
+fn start_background_helpers(app: tauri::AppHandle, port: u16) {
+    std::thread::spawn(move || {
+        windows_game::register_process_as_game();
+        if let Err(e) = spawn_client(port) {
+            eprintln!("[cultforge] {e}");
+        }
+        scanner::warm_scanner(&app);
+        if let Err(e) = mping::ensure_mping_broker() {
+            eprintln!("[cultforge] mping broker: {e}");
+        }
+    });
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -364,27 +421,34 @@ pub fn run() {
             mping::ensure_mping_broker,
         ])
         .setup(move |app| {
-            windows_game::register_process_as_game();
-            if let Err(e) = spawn_client(port) {
-                eprintln!("[cultforge] {e}");
-            }
-            if let Err(e) = mping::ensure_mping_broker() {
-                eprintln!("[cultforge] mping broker: {e}");
-            }
+            // Keep setup tiny: AUMID + tray only. Heavy helpers start off-thread
+            // so the webview paints instead of "(Not Responding)".
+            windows_game::set_app_user_model_id();
             if let Err(e) = setup_tray(app.handle()) {
                 eprintln!("[cultforge] tray setup failed: {e}");
             }
+            start_background_helpers(app.handle().clone(), port);
             Ok(())
         })
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
-        .run(|_app_handle, event| {
-            if let RunEvent::Exit = event {
-                let _ = launch::stop_minecraft();
-                kill_client();
-                mping::kill_mping_broker();
-                scanner::kill_scanner();
+        .run(|app_handle, event| match event {
+            // Decorations-false UI calls window.close(); with a tray that would
+            // leave the app (and Nuitka client.exe tree) alive forever.
+            RunEvent::WindowEvent {
+                label,
+                event: WindowEvent::CloseRequested { api, .. },
+                ..
+            } if label == "main" => {
+                api.prevent_close();
+                quit_app(&app_handle);
             }
+            RunEvent::Exit => {
+                // Best-effort if something else triggered exit.
+                let _ = launch::stop_minecraft();
+                cleanup_helpers();
+            }
+            _ => {}
         });
 }
 
@@ -410,8 +474,7 @@ fn setup_tray(app: &tauri::AppHandle) -> Result<(), Box<dyn std::error::Error>> 
                 let _ = launch::restore_from_tray(app.clone());
             }
             "quit" => {
-                let _ = launch::stop_minecraft();
-                app.exit(0);
+                quit_app(&app);
             }
             _ => {}
         })

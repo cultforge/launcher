@@ -13,7 +13,6 @@ export const SideMenus: Record<PrimaryTab, SMenu[]> = {
           label: "Updates",
           icon: AppIcons.Newspaper,
           primaryTab: "Home",
-          badge: 4,
         },
       ],
     },
@@ -108,4 +107,4 @@ export const HeaderTabs: PrimaryTab[] = [
 
 export const DefaultConfig: Object = {};
 
-export const APP_VERSION = "2.4.2 Generation 2";
+export const APP_VERSION = "2.4 Generation 2";

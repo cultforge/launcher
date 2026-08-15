@@ -84,11 +84,16 @@ Write-Host "Copied to src-tauri\resources\client.exe (installer bundle)"
 Write-Host "Copied to workspace root client.exe (tauri dev resolution)"
 
 # Keep companion binaries in the installer resource tree when present.
+# Patch CUI→GUI so Windows never flashes a console when helpers spawn/crash.
+$PatchPy = Join-Path $PSScriptRoot "patch-pe-gui-subsystem.py"
 foreach ($companion in @("scanner.exe", "ctfgbroker.exe")) {
   $src = Join-Path $Root $companion
   if (Test-Path $src) {
+    py -3 $PatchPy $src
     Copy-Item $src (Join-Path $ResDir $companion) -Force
     Write-Host "Copied $companion → src-tauri\resources\"
+  } elseif (Test-Path (Join-Path $ResDir $companion)) {
+    py -3 $PatchPy (Join-Path $ResDir $companion)
   }
 }
 

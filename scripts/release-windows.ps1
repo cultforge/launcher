@@ -4,8 +4,8 @@ $ErrorActionPreference = "Stop"
 $Root = Split-Path -Parent $PSScriptRoot
 Set-Location $Root
 
-$SemVer = "2.4.2"
-$Display = "2.4.2 Generation 2"
+$SemVer = "2.4.0"
+$Display = "2.4 Generation 2"
 $GitHubRepo = if ($env:CULTFORGE_GITHUB_REPO) { $env:CULTFORGE_GITHUB_REPO } else { "cultforge/launcher" }
 $ApiFeedUrl = "https://api.cultforge.com/v1/launcher/updates/latest.json"
 $ReleaseDir = Join-Path $Root "dist-release"
@@ -50,7 +50,7 @@ function Resolve-Sig([string]$ArtifactPath) {
 }
 
 Write-Host "== CultForge $Display release =="
-Write-Host "Asserting version stamps…"
+Write-Host "Asserting version stamps..."
 
 Assert-Contains (Join-Path $Root "package.json") "`"version`": `"$SemVer`"" "package.json"
 Assert-Contains (Join-Path $Root "src-tauri\tauri.conf.json") "`"version`": `"$SemVer`"" "tauri.conf.json"
@@ -60,7 +60,7 @@ Assert-Contains (Join-Path $Root "src\manifest.tsx") "APP_VERSION = `"$Display`"
 
 Ensure-UpdaterSigning
 
-Write-Host "1/5 sidecar:freeze…"
+Write-Host "1/5 sidecar:freeze..."
 & powershell -ExecutionPolicy Bypass -File (Join-Path $Root "scripts\freeze-sidecar.ps1")
 if ($LASTEXITCODE -ne 0) { throw "sidecar:freeze failed" }
 
@@ -71,22 +71,22 @@ foreach ($p in @($Sidecar, $RootClient, $ResClient)) {
   if (-not (Test-Path $p)) { throw "Expected client.exe missing: $p" }
 }
 
-Write-Host "2/5 npm run build…"
+Write-Host "2/5 npm run build..."
 npm run build
 if ($LASTEXITCODE -ne 0) { throw "npm run build failed" }
 
-Write-Host "3/5 npm test…"
+Write-Host "3/5 npm test..."
 npm test
 if ($LASTEXITCODE -ne 0) { throw "npm test failed" }
 
-Write-Host "4/5 npm run tauri build (MSI preferred, then NSIS)…"
+Write-Host "4/5 npm run tauri build (MSI preferred, then NSIS)..."
 $env:TAURI_WIX_SKIP_MSI_VALIDATION = "true"
 npm run tauri -- build --bundles msi
 if ($LASTEXITCODE -ne 0) { throw "tauri MSI build failed" }
 
 npm run tauri -- build --bundles nsis
 if ($LASTEXITCODE -ne 0) {
-  Write-Warning "NSIS bundle failed — MSI may still be shippable for updater."
+  Write-Warning "NSIS bundle failed - MSI may still be shippable for updater."
 }
 
 $Msi = $null
@@ -128,7 +128,7 @@ $Latest = [ordered]@{
   }
 }
 $LatestPath = Join-Path $ReleaseDir "latest.json"
-# UTF-8 without BOM — Tauri updater is picky about JSON encoding.
+# UTF-8 without BOM - Tauri updater is picky about JSON encoding.
 [System.IO.File]::WriteAllText(
   $LatestPath,
   ($Latest | ConvertTo-Json -Depth 6),
@@ -137,7 +137,7 @@ $LatestPath = Join-Path $ReleaseDir "latest.json"
 
 Copy-Item -Force $Msi (Join-Path $ReleaseDir $MsiName)
 Copy-Item -Force $MsiSig (Join-Path $ReleaseDir "$MsiName.sig")
-Copy-Item -Force $LatestPath (Join-Path $ReleaseDir "latest.json")
+# latest.json is already written into $ReleaseDir — do not copy onto itself.
 
 if ($Nsis) {
   $NsisName = Split-Path $Nsis -Leaf
@@ -148,7 +148,7 @@ if ($Nsis) {
   }
 }
 
-Write-Host "5/5 writing checksums…"
+Write-Host "5/5 writing checksums..."
 function Sha256Of([string]$Path) {
   return (Get-FileHash -Algorithm SHA256 -Path $Path).Hash.ToLowerInvariant()
 }
