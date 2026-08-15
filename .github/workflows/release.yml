@@ -22,25 +22,70 @@ permissions:
   contents: write
 
 jobs:
+  # Build the matrix in a prior job — job-level `if` cannot reference `matrix`.
+  select:
+    runs-on: ubuntu-latest
+    outputs:
+      include: ${{ steps.set.outputs.include }}
+      tag: ${{ steps.set.outputs.tag }}
+    steps:
+      - id: set
+        shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          INPUT_PLATFORMS: ${{ github.event.inputs.platforms }}
+          INPUT_TAG: ${{ github.event.inputs.tag }}
+          REF_NAME: ${{ github.ref_name }}
+        run: |
+          python3 <<'PY'
+          import json, os
+
+          event = os.environ["EVENT_NAME"]
+          if event == "push":
+              want = {"linux", "macos", "windows"}
+              tag = os.environ["REF_NAME"]
+          else:
+              raw = os.environ.get("INPUT_PLATFORMS") or "linux,macos"
+              want = {p.strip() for p in raw.split(",") if p.strip()}
+              tag = os.environ.get("INPUT_TAG") or "v2.4.0"
+
+          rows = [
+              {
+                  "id": "linux",
+                  "platform": "ubuntu-22.04",
+                  "args": "--bundles appimage,deb",
+              },
+              {
+                  "id": "macos",
+                  "platform": "macos-latest",
+                  "args": "--bundles dmg",
+              },
+              {
+                  "id": "windows",
+                  "platform": "windows-latest",
+                  "args": "--bundles msi,nsis",
+              },
+          ]
+          include = [r for r in rows if r["id"] in want]
+          include_json = json.dumps(include)
+          print("platforms:", sorted(want))
+          print("include:", include_json)
+          print("tag:", tag)
+
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as f:
+              f.write(f"include={include_json}\n")
+              f.write(f"tag={tag}\n")
+          PY
+
   build:
+    needs: select
+    if: needs.select.outputs.include != '[]'
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - id: linux
-            platform: ubuntu-22.04
-            args: "--bundles appimage,deb"
-          - id: macos
-            platform: macos-latest
-            args: "--bundles dmg"
-          - id: windows
-            platform: windows-latest
-            args: "--bundles msi,nsis"
+        include: ${{ fromJSON(needs.select.outputs.include) }}
 
     runs-on: ${{ matrix.platform }}
-    if: |
-      (github.event_name == 'push') ||
-      (github.event_name == 'workflow_dispatch' && contains(github.event.inputs.platforms, matrix.id))
 
     steps:
       - name: Checkout
@@ -103,25 +148,6 @@ jobs:
           console.log("Prepared", path, "for", id);
           NODE
 
-      - name: Fetch Windows sidecars from existing release
-        if: matrix.id == 'windows'
-        shell: pwsh
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          New-Item -ItemType Directory -Force -Path src-tauri/resources | Out-Null
-          $tag = if ("${{ github.event_name }}" -eq "workflow_dispatch") { "${{ github.event.inputs.tag }}" } else { "${{ github.ref_name }}" }
-          gh release download $tag --repo cultforge/launcher --dir dist-release-dl --pattern "CultForge_*" 2>$null
-          # Prefer committed workspace binaries if present; else leave verify to fail clearly.
-          $needed = @("client.exe","scanner.exe","ctfgbroker.exe")
-          foreach ($n in $needed) {
-            $local = Join-Path "src-tauri/resources" $n
-            if (-not (Test-Path $local)) {
-              Write-Host "Missing $local — Windows CI needs sidecars (run sidecar:freeze locally or commit resources)."
-            }
-          }
-          Get-ChildItem src-tauri/resources -ErrorAction SilentlyContinue | Format-Table Name,Length
-
       - name: Verify Windows sidecars
         if: matrix.id == 'windows'
         shell: pwsh
@@ -131,16 +157,6 @@ jobs:
             if (-not (Test-Path $p)) { throw "Missing $p" }
           }
 
-      - name: Resolve release tag
-        id: meta
-        shell: bash
-        run: |
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            echo "tag=${{ github.event.inputs.tag }}" >> "$GITHUB_OUTPUT"
-          else
-            echo "tag=${{ github.ref_name }}" >> "$GITHUB_OUTPUT"
-          fi
-
       - name: Build Tauri
         uses: tauri-apps/tauri-action@v0
         env:
@@ -149,9 +165,9 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
           TAURI_WIX_SKIP_MSI_VALIDATION: "true"
         with:
-          tagName: ${{ steps.meta.outputs.tag }}
-          releaseName: "CultForge ${{ steps.meta.outputs.tag }}"
-          releaseBody: "CultForge Launcher ${{ steps.meta.outputs.tag }} (Windows + Linux + macOS)."
+          tagName: ${{ needs.select.outputs.tag }}
+          releaseName: "CultForge ${{ needs.select.outputs.tag }}"
+          releaseBody: "CultForge Launcher ${{ needs.select.outputs.tag }} (Windows + Linux + macOS)."
           releaseDraft: false
           prerelease: false
           args: ${{ matrix.args }}
