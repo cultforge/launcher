@@ -37,21 +37,15 @@ Installer URLs inside `latest.json` point at GitHub release assets. The API feed
 
 ### API live channel (`api.cultforge.com`)
 
-`api.cultforge.com` is served via Cloudflare Tunnel. Until the origin exposes the route, the client uses the GitHub fallback.
+Implemented on the tunnel API (`cult_core2` → `api.py`):
 
-Add on the API origin (any stack):
+`GET /v1/launcher/updates/latest.json`
 
-```http
-GET /v1/launcher/updates/latest.json
-```
-
-Proxy or mirror:
+Proxies (300s cache) GitHub:
 
 `https://github.com/cultforge/launcher/releases/latest/download/latest.json`
 
-Response: `200` + `Content-Type: application/json` + Tauri updater body (`version`, `notes`, `pub_date`, `platforms.windows-x86_64.url` + `signature`).
-
-Optional Cloudflare Worker equivalent lives in [`deploy/launcher-updates-worker.js`](../deploy/launcher-updates-worker.js) (requires Worker deploy rights on the zone).
+Restart / reload the local `api` uvicorn (port **8071**) after pulling the route so the public tunnel serves it. Optional Cloudflare Worker mirror: [`deploy/launcher-updates-worker.js`](../deploy/launcher-updates-worker.js).
 
 ## Client behavior
 
