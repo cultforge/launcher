@@ -15,6 +15,19 @@ param(
 $ErrorActionPreference = "Continue"
 $ProgressPreference = "SilentlyContinue"
 
+function Normalize-InstallDir([string]$p) {
+  if ([string]::IsNullOrWhiteSpace($p)) { return "" }
+  $p = $p.Trim().Trim("`"", "'")
+  while ($p.Length -gt 0 -and ($p.EndsWith('"') -or $p.EndsWith("'"))) {
+    $p = $p.Substring(0, $p.Length - 1).TrimEnd()
+  }
+  $p = $p.TrimEnd('\', '/')
+  if (-not $p) { return "" }
+  try { return [System.IO.Path]::GetFullPath($p) } catch { return $p }
+}
+
+$InstallDir = Normalize-InstallDir $InstallDir
+
 function Write-Cf([string]$msg) {
   Write-Host "[CultForge] $msg"
 }
@@ -33,7 +46,7 @@ try {
 
 # --- Java 17 (Temurin JRE) - matches src-tauri/src/java_runtime.rs ------------
 $Major = 17
-$UserAgent = "CultForge/2.4.1 (installer; java-runtime)"
+$UserAgent = "CultForge/2.4.2 (installer; java-runtime)"
 $RuntimesRoot = Join-Path $env:APPDATA "CultForge\runtimes"
 $JavaDir = Join-Path $RuntimesRoot "java-$Major"
 $MetaPath = Join-Path $JavaDir "runtime.json"

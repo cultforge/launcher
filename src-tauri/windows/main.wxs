@@ -392,7 +392,7 @@
         <CustomAction
             Id="CultForgePostInstall"
             Directory="INSTALLDIR"
-            ExeCommand="powershell.exe -NoProfile -ExecutionPolicy Bypass -File &quot;[INSTALLDIR]installer-scripts\post-install.ps1&quot; &quot;[INSTALLDIR]&quot;"
+            ExeCommand="powershell.exe -NoProfile -ExecutionPolicy Bypass -File &quot;[INSTALLDIR]installer-scripts\post-install.ps1&quot; &quot;[INSTALLDIR].&quot;"
             Execute="deferred"
             Impersonate="yes"
             Return="ignore" />

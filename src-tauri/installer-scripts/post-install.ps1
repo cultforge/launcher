@@ -12,6 +12,28 @@ param(
 $ErrorActionPreference = "Continue"
 $ProgressPreference = "SilentlyContinue"
 
+# MSI/NSIS often pass INSTALLDIR with a trailing "\" inside quotes → PowerShell
+# sees a literal trailing quote (..."CultForge\"). Strip junk before any path IO.
+function Normalize-InstallDir([string]$p) {
+  if ([string]::IsNullOrWhiteSpace($p)) { return "" }
+  $p = $p.Trim()
+  $p = $p.Trim("`"", "'")
+  while ($p.Length -gt 0 -and ($p.EndsWith('"') -or $p.EndsWith("'"))) {
+    $p = $p.Substring(0, $p.Length - 1).TrimEnd()
+  }
+  $p = $p.TrimEnd('\', '/')
+  if (-not $p) { return "" }
+  try {
+    return [System.IO.Path]::GetFullPath($p)
+  } catch {
+    return $p
+  }
+}
+
+if (-not $InstallDir) { $InstallDir = $PSScriptRoot }
+$InstallDir = Normalize-InstallDir $InstallDir
+if (-not $InstallDir) { $InstallDir = Normalize-InstallDir $PSScriptRoot }
+
 function Write-Cf([string]$msg) {
   Write-Host "[CultForge] $msg"
 }
