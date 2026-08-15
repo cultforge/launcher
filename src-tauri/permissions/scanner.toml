@@ -1,0 +1,53 @@
+[[permission]]
+identifier = "allow-scanner-call"
+description = "Send an allowlisted JSON-RPC method to scanner.exe"
+commands.allow = ["scanner_call"]
+
+[[permission]]
+identifier = "allow-get-minecraft-root"
+description = "Read the default .minecraft root path"
+commands.allow = ["get_minecraft_root"]
+
+[[permission]]
+identifier = "allow-list-local-builds"
+description = "List local Minecraft version folders as builds"
+commands.allow = ["list_local_builds"]
+
+[[permission]]
+identifier = "allow-list-local-content"
+description = "List local mods/packs/shaders/datapacks/worlds"
+commands.allow = ["list_local_content"]
+
+[[permission]]
+identifier = "allow-content-hash-file"
+description = "Hash a local content file (sha1/sha512)"
+commands.allow = ["content_hash_file"]
+
+[[permission]]
+identifier = "allow-cache-get-meta"
+description = "Read cached content metadata"
+commands.allow = ["cache_get_meta"]
+
+[[permission]]
+identifier = "allow-cache-put-meta"
+description = "Write cached content metadata"
+commands.allow = ["cache_put_meta"]
+
+[[permission]]
+identifier = "allow-cache-ensure-image"
+description = "Download/read a cached content icon"
+commands.allow = ["cache_ensure_image"]
+
+[[set]]
+identifier = "local-content"
+description = "Local scanning and content cache commands"
+permissions = [
+  "allow-scanner-call",
+  "allow-get-minecraft-root",
+  "allow-list-local-builds",
+  "allow-list-local-content",
+  "allow-content-hash-file",
+  "allow-cache-get-meta",
+  "allow-cache-put-meta",
+  "allow-cache-ensure-image",
+]

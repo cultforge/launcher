@@ -1,0 +1,51 @@
+[[permission]]
+identifier = "allow-start-modrinth-install"
+description = "Start a Modrinth install job"
+commands.allow = ["start_modrinth_install"]
+
+[[permission]]
+identifier = "allow-start-guild-manifest-sync"
+description = "Start a guild BuildManifest sync/reconcile job"
+commands.allow = ["start_guild_manifest_sync"]
+
+[[permission]]
+identifier = "allow-check-guild-manifest-sync"
+description = "Compare an instance folder to a guild BuildManifest"
+commands.allow = ["check_guild_manifest_sync"]
+
+[[permission]]
+identifier = "allow-list-managed-instances"
+description = "List guild-managed instances from CultForge/instances"
+commands.allow = ["list_managed_instances"]
+
+[[permission]]
+identifier = "allow-cancel-download"
+description = "Cancel an in-flight download job"
+commands.allow = ["cancel_download"]
+
+[[permission]]
+identifier = "allow-list-download-jobs"
+description = "List active download jobs"
+commands.allow = ["list_download_jobs"]
+
+[[permission]]
+identifier = "allow-get-port"
+description = "Read the local FastAPI sidecar port and loopback secret"
+commands.allow = ["get_port", "get_loopback_secret", "get_sidecar_info"]
+
+[[permission]]
+identifier = "allow-greet"
+description = "Demo greet command"
+commands.allow = ["greet"]
+
+[[set]]
+identifier = "modrinth-downloads"
+description = "Modrinth and guild manifest download/sync commands"
+permissions = [
+  "allow-start-modrinth-install",
+  "allow-start-guild-manifest-sync",
+  "allow-check-guild-manifest-sync",
+  "allow-list-managed-instances",
+  "allow-cancel-download",
+  "allow-list-download-jobs",
+]

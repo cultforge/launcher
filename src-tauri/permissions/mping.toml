@@ -1,0 +1,35 @@
+[[permission]]
+identifier = "allow-get-cultforge-home"
+description = "Resolve CULTFORGE_HOME / install directory"
+commands.allow = ["get_cultforge_home"]
+
+[[permission]]
+identifier = "allow-get-mping-port"
+description = "Read local ctfgbroker mping port"
+commands.allow = ["get_mping_port"]
+
+[[permission]]
+identifier = "allow-write-mping-servers"
+description = "Write api/mping.json watch list for ctfgbroker"
+commands.allow = ["write_mping_servers"]
+
+[[permission]]
+identifier = "allow-read-mping-servers"
+description = "Read api/mping.json watch list"
+commands.allow = ["read_mping_servers"]
+
+[[permission]]
+identifier = "allow-ensure-mping-broker"
+description = "Spawn ctfgbroker.exe for Minecraft server status"
+commands.allow = ["ensure_mping_broker"]
+
+[[set]]
+identifier = "mping"
+description = "Local Minecraft server status broker (ctfgbroker)"
+permissions = [
+  "allow-get-cultforge-home",
+  "allow-get-mping-port",
+  "allow-write-mping-servers",
+  "allow-read-mping-servers",
+  "allow-ensure-mping-broker",
+]

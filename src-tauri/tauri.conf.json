@@ -1,0 +1,73 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "CultForge",
+  "version": "2.4.0",
+  "identifier": "com.cultforge.app",
+  "build": {
+    "beforeDevCommand": "npm run dev",
+    "devUrl": "http://localhost:1420",
+    "beforeBuildCommand": "npm run build",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "windows": [
+      {
+        "title": "CultForge 2.4 Generation 2",
+        "width": 1400,
+        "height": 800,
+        "minWidth": 1380,
+        "minHeight": 800,
+        "center": true,
+        "resizable": true,
+        "decorations": false
+      }
+    ],
+    "security": {
+      "csp": null
+    }
+  },
+  "plugins": {
+    "deep-link": {
+      "desktop": {
+        "schemes": ["cultforge"]
+      }
+    },
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDJFNTY4MzZGMjhGMEZBQkUKUldTKyt2QW9iNE5XTHNKOFN4eG5oWXJXb3k0eTF5UlUyS3NwdTRWT0Z1d25TMkFCTk41UTgvbUIK",
+      "endpoints": [
+        "https://github.com/cultforge/launcher/releases/latest/download/latest.json"
+      ],
+      "windows": {
+        "installMode": "passive"
+      }
+    }
+  },
+  "bundle": {
+    "active": true,
+    "createUpdaterArtifacts": true,
+    "targets": ["msi", "nsis"],
+    "icon": [
+      "icons/icon.ico",
+      "icons/icon.icns",
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png"
+    ],
+    "resources": [
+      "installer-scripts/pre-install.ps1",
+      "installer-scripts/post-install.ps1",
+      "installer-scripts/pre-uninstall.ps1",
+      "resources/client.exe",
+      "resources/ctfgbroker.exe"
+    ],
+    "windows": {
+      "nsis": {
+        "installMode": "currentUser",
+        "installerHooks": "./windows/hooks.nsh"
+      },
+      "wix": {
+        "template": "./windows/main.wxs"
+      }
+    }
+  }
+}

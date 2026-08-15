@@ -1,0 +1,107 @@
+[[permission]]
+identifier = "allow-resolve-java"
+description = "Resolve a local Java/javaw executable for Minecraft launch"
+commands.allow = ["resolve_java"]
+
+[[permission]]
+identifier = "allow-ensure-java"
+description = "Download and install a Temurin JRE matching a build's Java major"
+commands.allow = ["ensure_java"]
+
+[[permission]]
+identifier = "allow-list-java-runtimes"
+description = "List CultForge-managed and system Java runtimes"
+commands.allow = ["list_java_runtimes"]
+
+[[permission]]
+identifier = "allow-list-mojang-versions"
+description = "List vanilla Minecraft versions from Mojang's version manifest"
+commands.allow = ["list_mojang_versions"]
+
+[[permission]]
+identifier = "allow-install-mojang-version"
+description = "Download a Mojang Minecraft version and create a CultForge instance"
+commands.allow = ["install_mojang_version"]
+
+[[permission]]
+identifier = "allow-list-loader-versions"
+description = "List Forge, NeoForge, Fabric, or Quilt versions for a Minecraft release"
+commands.allow = ["list_loader_versions"]
+
+[[permission]]
+identifier = "allow-install-loader-build"
+description = "Install a client loader on top of a Mojang Minecraft version"
+commands.allow = ["install_loader_build"]
+
+[[permission]]
+identifier = "allow-set-java-gpu-preference"
+description = "Set Windows Graphics Settings GPU preference for javaw.exe"
+commands.allow = ["set_java_gpu_preference"]
+
+[[permission]]
+identifier = "allow-list-instance-session-logs"
+description = "List instance log files from the current launch session"
+commands.allow = ["list_instance_session_logs"]
+
+[[permission]]
+identifier = "allow-system-snapshot"
+description = "Read OS/arch snapshot for crash reports"
+commands.allow = ["system_snapshot"]
+
+[[permission]]
+identifier = "allow-launch-minecraft"
+description = "Spawn Minecraft for a CultForge build instance"
+commands.allow = ["launch_minecraft"]
+
+[[permission]]
+identifier = "allow-get-launch-status"
+description = "Read whether CultForge currently has a Minecraft process running"
+commands.allow = ["get_launch_status"]
+
+[[permission]]
+identifier = "allow-stop-minecraft"
+description = "Stop the Minecraft process started by CultForge"
+commands.allow = ["stop_minecraft"]
+
+[[permission]]
+identifier = "allow-read-instance-log-tail"
+description = "Read the tail of an instance log file"
+commands.allow = ["read_instance_log_tail"]
+
+[[permission]]
+identifier = "allow-write-crash-report"
+description = "Write a CultForge crash report into an instance crash-reports folder"
+commands.allow = ["write_crash_report"]
+
+[[permission]]
+identifier = "allow-minimize-to-tray"
+description = "Hide the main window to the system tray"
+commands.allow = ["minimize_to_tray"]
+
+[[permission]]
+identifier = "allow-restore-from-tray"
+description = "Show and focus the main window from the system tray"
+commands.allow = ["restore_from_tray"]
+
+[[set]]
+identifier = "minecraft-launch"
+description = "Resolve Java and launch/stop Minecraft"
+permissions = [
+  "allow-resolve-java",
+  "allow-ensure-java",
+  "allow-list-java-runtimes",
+  "allow-list-mojang-versions",
+  "allow-install-mojang-version",
+  "allow-list-loader-versions",
+  "allow-install-loader-build",
+  "allow-set-java-gpu-preference",
+  "allow-launch-minecraft",
+  "allow-get-launch-status",
+  "allow-stop-minecraft",
+  "allow-read-instance-log-tail",
+  "allow-list-instance-session-logs",
+  "allow-system-snapshot",
+  "allow-write-crash-report",
+  "allow-minimize-to-tray",
+  "allow-restore-from-tray",
+]

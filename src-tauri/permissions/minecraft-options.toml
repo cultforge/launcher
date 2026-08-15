@@ -1,0 +1,155 @@
+[[permission]]
+identifier = "allow-set-mod-enabled"
+description = "Enable/disable a mod by renaming with .disabled under a build instance mods folder"
+commands.allow = ["set_mod_enabled"]
+
+[[permission]]
+identifier = "allow-read-minecraft-options"
+description = "Read options.txt from a build instance folder"
+commands.allow = ["read_minecraft_options"]
+
+[[permission]]
+identifier = "allow-write-minecraft-options"
+description = "Write options.txt in a build instance folder"
+commands.allow = ["write_minecraft_options"]
+
+[[permission]]
+identifier = "allow-set-resource-pack-enabled"
+description = "Toggle a resource pack in options.txt resourcePacks"
+commands.allow = ["set_resource_pack_enabled"]
+
+[[permission]]
+identifier = "allow-set-shader-pack"
+description = "Set or clear options.txt shaderPack"
+commands.allow = ["set_shader_pack"]
+
+[[permission]]
+identifier = "allow-get-instances-root"
+description = "Read the CultForge instances root path"
+commands.allow = ["get_instances_root"]
+
+[[permission]]
+identifier = "allow-ensure-build-instance"
+description = "Create/ensure a per-build instance folder under CultForge/instances"
+commands.allow = ["ensure_build_instance"]
+
+[[permission]]
+identifier = "allow-open-instance-folder"
+description = "Open a CultForge instance or exports folder in the OS file manager"
+commands.allow = ["open_instance_folder"]
+
+[[permission]]
+identifier = "allow-duplicate-build-instance"
+description = "Duplicate a CultForge instance folder"
+commands.allow = ["duplicate_build_instance"]
+
+[[permission]]
+identifier = "allow-export-build-pack"
+description = "Export selected instance folders to a zip under CultForge/exports"
+commands.allow = ["export_build_pack"]
+
+[[permission]]
+identifier = "allow-open-instance-subdir"
+description = "Open a content subfolder under a CultForge instance"
+commands.allow = ["open_instance_subdir"]
+
+[[permission]]
+identifier = "allow-pick-content-files"
+description = "Open a native file picker for packs/mods"
+commands.allow = ["pick_content_files"]
+
+[[permission]]
+identifier = "allow-import-instance-files"
+description = "Copy selected files into an instance content folder"
+commands.allow = ["import_instance_files"]
+
+[[permission]]
+identifier = "allow-read-build-notes"
+description = "Read per-instance notes.md"
+commands.allow = ["read_build_notes"]
+
+[[permission]]
+identifier = "allow-write-build-notes"
+description = "Write per-instance notes.md"
+commands.allow = ["write_build_notes"]
+
+[[permission]]
+identifier = "allow-read-build-config"
+description = "Read per-instance cultforge config.json"
+commands.allow = ["read_build_config"]
+
+[[permission]]
+identifier = "allow-write-build-config"
+description = "Write per-instance cultforge config.json"
+commands.allow = ["write_build_config"]
+
+[[permission]]
+identifier = "allow-read-build-meta"
+description = "Read notes and config for a build"
+commands.allow = ["read_build_meta"]
+
+[[permission]]
+identifier = "allow-add-build-playtime-minutes"
+description = "Accumulate playtime minutes for a build"
+commands.allow = ["add_build_playtime_minutes"]
+
+[[permission]]
+identifier = "allow-touch-build-last-played"
+description = "Record last-played timestamp for a build"
+commands.allow = ["touch_build_last_played"]
+
+[[permission]]
+identifier = "allow-list-build-backups"
+description = "List zip backups for a build"
+commands.allow = ["list_build_backups"]
+
+[[permission]]
+identifier = "allow-create-build-backup"
+description = "Create a zip backup of a build instance"
+commands.allow = ["create_build_backup"]
+
+[[permission]]
+identifier = "allow-restore-build-backup"
+description = "Restore a zip backup into a build instance"
+commands.allow = ["restore_build_backup"]
+
+[[permission]]
+identifier = "allow-delete-build-backup"
+description = "Delete a zip backup"
+commands.allow = ["delete_build_backup"]
+
+[[permission]]
+identifier = "allow-list-display-resolutions"
+description = "List resolution presets up to the primary monitor size"
+commands.allow = ["list_display_resolutions"]
+
+[[set]]
+identifier = "minecraft-options"
+description = "Minecraft options.txt, mod enable/disable, and build instances"
+permissions = [
+  "allow-set-mod-enabled",
+  "allow-read-minecraft-options",
+  "allow-write-minecraft-options",
+  "allow-set-resource-pack-enabled",
+  "allow-set-shader-pack",
+  "allow-get-instances-root",
+  "allow-ensure-build-instance",
+  "allow-open-instance-folder",
+  "allow-open-instance-subdir",
+  "allow-pick-content-files",
+  "allow-import-instance-files",
+  "allow-duplicate-build-instance",
+  "allow-export-build-pack",
+  "allow-read-build-notes",
+  "allow-write-build-notes",
+  "allow-read-build-config",
+  "allow-write-build-config",
+  "allow-read-build-meta",
+  "allow-add-build-playtime-minutes",
+  "allow-touch-build-last-played",
+  "allow-list-build-backups",
+  "allow-create-build-backup",
+  "allow-restore-build-backup",
+  "allow-delete-build-backup",
+  "allow-list-display-resolutions",
+]
