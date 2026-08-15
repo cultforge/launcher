@@ -34,7 +34,7 @@ from ctfgsdk.schema import (
     UserHandleUpdateRequest,
 )
 
-APP_VERSION = "2.4.0"
+APP_VERSION = "2.4.1"
 ws_connections: set[WebSocket] = set()
 
 LOG_LEVELS = {"DEBUG", "INFO", "SUCCESS", "WARNING", "ERROR", "CRITICAL", "EXCEPTION"}

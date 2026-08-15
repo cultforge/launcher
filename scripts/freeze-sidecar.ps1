@@ -82,5 +82,15 @@ Copy-Item $Target $ResClient -Force
 Copy-Item $Target $RootClient -Force
 Write-Host "Copied to src-tauri\resources\client.exe (installer bundle)"
 Write-Host "Copied to workspace root client.exe (tauri dev resolution)"
+
+# Keep companion binaries in the installer resource tree when present.
+foreach ($companion in @("scanner.exe", "ctfgbroker.exe")) {
+  $src = Join-Path $Root $companion
+  if (Test-Path $src) {
+    Copy-Item $src (Join-Path $ResDir $companion) -Force
+    Write-Host "Copied $companion → src-tauri\resources\"
+  }
+}
+
 Write-Host "Done: $Target"
 Get-Item $Target | Format-List Name, Length, LastWriteTime

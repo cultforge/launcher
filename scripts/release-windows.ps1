@@ -4,8 +4,8 @@ $ErrorActionPreference = "Stop"
 $Root = Split-Path -Parent $PSScriptRoot
 Set-Location $Root
 
-$SemVer = "2.4.0"
-$Display = "2.4 Generation 2"
+$SemVer = "2.4.1"
+$Display = "2.4.1 Generation 2"
 $GitHubRepo = if ($env:CULTFORGE_GITHUB_REPO) { $env:CULTFORGE_GITHUB_REPO } else { "cultforge/launcher" }
 $ApiFeedUrl = "https://api.cultforge.com/v1/launcher/updates/latest.json"
 $ReleaseDir = Join-Path $Root "dist-release"

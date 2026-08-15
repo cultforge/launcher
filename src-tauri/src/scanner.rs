@@ -27,6 +27,24 @@ fn scanner_exe_path() -> PathBuf {
     if let Ok(p) = std::env::var("CULTFORGE_SCANNER") {
         return PathBuf::from(p);
     }
+    // Installed layout: next to CultForge.exe or resources/
+    if let Ok(exe) = std::env::current_exe() {
+        let mut dir = exe.parent().map(|p| p.to_path_buf());
+        for _ in 0..4 {
+            if let Some(ref d) = dir {
+                for candidate in [d.join("scanner.exe"), d.join("resources").join("scanner.exe")] {
+                    if candidate.exists() {
+                        if let Ok(canonical) = candidate.canonicalize() {
+                            return canonical;
+                        }
+                        return candidate;
+                    }
+                }
+                dir = d.parent().map(|p| p.to_path_buf());
+            }
+        }
+    }
+    // Dev workspace
     let workspace = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("..")
         .join("scanner.exe");
@@ -36,17 +54,14 @@ fn scanner_exe_path() -> PathBuf {
     if workspace.exists() {
         return workspace;
     }
-    if let Ok(exe) = std::env::current_exe() {
-        let mut dir = exe.parent().map(|p| p.to_path_buf());
-        for _ in 0..6 {
-            if let Some(ref d) = dir {
-                let candidate = d.join("scanner.exe");
-                if candidate.exists() {
-                    return candidate;
-                }
-                dir = d.parent().map(|p| p.to_path_buf());
-            }
-        }
+    let res = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("resources")
+        .join("scanner.exe");
+    if let Ok(canonical) = res.canonicalize() {
+        return canonical;
+    }
+    if res.exists() {
+        return res;
     }
     PathBuf::from("scanner.exe")
 }
@@ -73,11 +88,19 @@ fn spawn_scanner(app: &AppHandle) -> Result<(), String> {
         .map(|p| p.to_path_buf())
         .unwrap_or_else(|| PathBuf::from("."));
 
-    let mut child = Command::new(&exe)
+    let mut child = Command::new(&exe);
+    child
         .current_dir(&workdir)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
-        .stderr(Stdio::null())
+        .stderr(Stdio::null());
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+        child.creation_flags(CREATE_NO_WINDOW);
+    }
+    let mut child = child
         .spawn()
         .map_err(|e| format!("Failed to spawn scanner.exe: {e}"))?;
 

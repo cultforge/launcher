@@ -33,7 +33,7 @@ try {
 
 # --- Java 17 (Temurin JRE) - matches src-tauri/src/java_runtime.rs ------------
 $Major = 17
-$UserAgent = "CultForge/2.4.0 (installer; java-runtime)"
+$UserAgent = "CultForge/2.4.1 (installer; java-runtime)"
 $RuntimesRoot = Join-Path $env:APPDATA "CultForge\runtimes"
 $JavaDir = Join-Path $RuntimesRoot "java-$Major"
 $MetaPath = Join-Path $JavaDir "runtime.json"

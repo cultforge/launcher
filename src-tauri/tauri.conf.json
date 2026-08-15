@@ -1,7 +1,7 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "CultForge",
-  "version": "2.4.0",
+  "version": "2.4.1",
   "identifier": "com.cultforge.app",
   "build": {
     "beforeDevCommand": "npm run dev",
@@ -12,7 +12,7 @@
   "app": {
     "windows": [
       {
-        "title": "CultForge 2.4 Generation 2",
+        "title": "CultForge 2.4.1 Generation 2",
         "width": 1400,
         "height": 800,
         "minWidth": 1380,
@@ -59,7 +59,8 @@
       "installer-scripts/post-install.ps1",
       "installer-scripts/pre-uninstall.ps1",
       "resources/client.exe",
-      "resources/ctfgbroker.exe"
+      "resources/ctfgbroker.exe",
+      "resources/scanner.exe"
     ],
     "windows": {
       "nsis": {

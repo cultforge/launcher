@@ -108,4 +108,4 @@ export const HeaderTabs: PrimaryTab[] = [
 
 export const DefaultConfig: Object = {};
 
-export const APP_VERSION = "2.4 Generation 2";
+export const APP_VERSION = "2.4.1 Generation 2";

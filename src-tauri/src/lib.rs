@@ -81,6 +81,28 @@ fn look_for_sidecar_named(name: &str) -> Option<PathBuf> {
         }
     }
 
+    // Installed / running binary layout first (never prefer compile-time workspace paths).
+    if let Ok(exe) = std::env::current_exe() {
+        let mut dir = exe.parent().map(|p| p.to_path_buf());
+        for _ in 0..4 {
+            if let Some(ref d) = dir {
+                for candidate in [
+                    d.join(name),
+                    d.join("resources").join(name),
+                ] {
+                    if candidate.exists() {
+                        if let Ok(canonical) = candidate.canonicalize() {
+                            return Some(canonical);
+                        }
+                        return Some(candidate);
+                    }
+                }
+                dir = d.parent().map(|p| p.to_path_buf());
+            }
+        }
+    }
+
+    // Dev / freeze paths (CARGO_MANIFEST_DIR only exists meaningfully on build machines).
     let workspace = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("..")
         .join(name);
@@ -91,7 +113,6 @@ fn look_for_sidecar_named(name: &str) -> Option<PathBuf> {
         return Some(workspace);
     }
 
-    // dist-sidecar/ output from `npm run sidecar:freeze`
     if name == SIDECAR_EXE_NAME || name == SIDECAR_EXE_LEGACY {
         let dist = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
             .join("..")
@@ -103,37 +124,14 @@ fn look_for_sidecar_named(name: &str) -> Option<PathBuf> {
         if dist.exists() {
             return Some(dist);
         }
-        // Bundled resource next to CultForge.exe (installer layout)
-        if name == SIDECAR_EXE_NAME {
-            let res = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("resources").join(name);
-            if let Ok(canonical) = res.canonicalize() {
-                return Some(canonical);
-            }
-            if res.exists() {
-                return Some(res);
-            }
+        let res = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("resources")
+            .join(name);
+        if let Ok(canonical) = res.canonicalize() {
+            return Some(canonical);
         }
-    }
-
-    if let Ok(exe) = std::env::current_exe() {
-        let mut dir = exe.parent().map(|p| p.to_path_buf());
-        for _ in 0..6 {
-            if let Some(ref d) = dir {
-                for candidate in [
-                    d.join(name),
-                    d.join("resources").join(name),
-                    d.join("..").join(name),
-                    d.join("..").join("resources").join(name),
-                ] {
-                    if candidate.exists() {
-                        if let Ok(canonical) = candidate.canonicalize() {
-                            return Some(canonical);
-                        }
-                        return Some(candidate);
-                    }
-                }
-                dir = d.parent().map(|p| p.to_path_buf());
-            }
+        if res.exists() {
+            return Some(res);
         }
     }
 
@@ -208,13 +206,19 @@ fn spawn_client(port: u16) -> Result<(), String> {
             workdir.display(),
             log_path.display()
         );
-        Command::new(&sidecar)
-            .arg(port.to_string())
+        let mut cmd = Command::new(&sidecar);
+        cmd.arg(port.to_string())
             .env("CULTFORGE_LOOPBACK_SECRET", loopback_secret)
             .current_dir(&workdir)
             .stdout(Stdio::from(log_file))
-            .stderr(Stdio::from(log_err))
-            .spawn()
+            .stderr(Stdio::from(log_err));
+        #[cfg(windows)]
+        {
+            use std::os::windows::process::CommandExt;
+            const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+            cmd.creation_flags(CREATE_NO_WINDOW);
+        }
+        cmd.spawn()
             .map_err(|e| format!("Failed to spawn {SIDECAR_EXE_NAME}: {e}"))?
     } else {
         let python =
@@ -226,14 +230,20 @@ fn spawn_client(port: u16) -> Result<(), String> {
             workdir.display(),
             log_path.display()
         );
-        Command::new(python)
-            .arg(&sidecar)
+        let mut cmd = Command::new(python);
+        cmd.arg(&sidecar)
             .arg(port.to_string())
             .env("CULTFORGE_LOOPBACK_SECRET", loopback_secret)
             .current_dir(&workdir)
             .stdout(Stdio::from(log_file))
-            .stderr(Stdio::from(log_err))
-            .spawn()
+            .stderr(Stdio::from(log_err));
+        #[cfg(windows)]
+        {
+            use std::os::windows::process::CommandExt;
+            const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+            cmd.creation_flags(CREATE_NO_WINDOW);
+        }
+        cmd.spawn()
             .map_err(|e| format!("Failed to spawn client.py: {e}"))?
     };
 

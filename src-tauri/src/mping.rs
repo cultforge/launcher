@@ -29,6 +29,19 @@ fn cultforge_home() -> PathBuf {
 }
 
 fn look_for_broker() -> Option<PathBuf> {
+    // Prefer next to running CultForge.exe (installed MSI/NSIS).
+    if let Ok(exe) = std::env::current_exe() {
+        if let Some(dir) = exe.parent() {
+            let next = dir.join(BROKER_EXE);
+            if next.is_file() {
+                return Some(next);
+            }
+            let nested = dir.join("resources").join(BROKER_EXE);
+            if nested.is_file() {
+                return Some(nested);
+            }
+        }
+    }
     let home = cultforge_home().join(BROKER_EXE);
     if home.is_file() {
         return Some(home);
@@ -44,18 +57,6 @@ fn look_for_broker() -> Option<PathBuf> {
         .join(BROKER_EXE);
     if workspace.is_file() {
         return Some(workspace);
-    }
-    if let Ok(exe) = std::env::current_exe() {
-        if let Some(dir) = exe.parent() {
-            let next = dir.join(BROKER_EXE);
-            if next.is_file() {
-                return Some(next);
-            }
-            let nested = dir.join("resources").join(BROKER_EXE);
-            if nested.is_file() {
-                return Some(nested);
-            }
-        }
     }
     None
 }
