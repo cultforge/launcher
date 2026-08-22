@@ -24,6 +24,7 @@ mod secrets;
 mod local_assistant;
 mod mping;
 mod win_proc;
+mod servers_dat;
 
 static PORT: Lazy<Mutex<u16>> = Lazy::new(|| {
     let listener = TcpListener::bind("127.0.0.1:0").expect("Failed to bind to free port");
@@ -145,9 +146,46 @@ fn look_for_sidecar_named(name: &str) -> Option<PathBuf> {
     None
 }
 
-/// Prefer frozen sidecar. Windows release requires `client.exe`.
-/// Linux/macOS may use a native `client` binary, or `client.py` when present.
+fn prepare_sidecar_binary(path: &std::path::Path) -> Result<(), String> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let meta = std::fs::metadata(path)
+            .map_err(|e| format!("sidecar metadata {}: {e}", path.display()))?;
+        let mut perms = meta.permissions();
+        let mode = perms.mode();
+        if mode & 0o111 == 0 {
+            perms.set_mode(mode | 0o755);
+            std::fs::set_permissions(path, perms)
+                .map_err(|e| format!("chmod +x {}: {e}", path.display()))?;
+        }
+        let _ = Command::new("xattr")
+            .args(["-d", "com.apple.quarantine"])
+            .arg(path)
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status();
+    }
+    let _ = path;
+    Ok(())
+}
+
+/// Prefer frozen sidecar in release. In debug, prefer `client.py` so local
+/// Python/SDK edits (e.g. branding uploads) apply without re-freezing.
 fn resolve_sidecar() -> Result<(PathBuf, bool), String> {
+    #[cfg(all(windows, debug_assertions))]
+    {
+        if let Some(py) = look_for_sidecar_named(CLIENT_PY_NAME) {
+            return Ok((py, false));
+        }
+    }
+    // Prefer platform-native name first on unix so fetch installs win.
+    #[cfg(not(windows))]
+    {
+        if let Some(bin) = look_for_sidecar_named(SIDECAR_UNIX_NAME) {
+            return Ok((bin, true));
+        }
+    }
     if let Some(exe) = look_for_sidecar_named(SIDECAR_EXE_NAME) {
         return Ok((exe, true));
     }
@@ -156,15 +194,6 @@ fn resolve_sidecar() -> Result<(PathBuf, bool), String> {
     }
     #[cfg(not(windows))]
     {
-        if let Some(bin) = look_for_sidecar_named(SIDECAR_UNIX_NAME) {
-            return Ok((bin, true));
-        }
-        if let Some(py) = look_for_sidecar_named(CLIENT_PY_NAME) {
-            return Ok((py, false));
-        }
-    }
-    #[cfg(all(windows, debug_assertions))]
-    {
         if let Some(py) = look_for_sidecar_named(CLIENT_PY_NAME) {
             return Ok((py, false));
         }
@@ -172,13 +201,13 @@ fn resolve_sidecar() -> Result<(PathBuf, bool), String> {
     #[cfg(windows)]
     {
         Err(format!(
-            "{SIDECAR_EXE_NAME} not found next to CultForge / resources. Run `npm run sidecar:freeze` (Windows release never uses client.py)."
+            "{SIDECAR_EXE_NAME} not found next to CultForge / resources. Run `npm run companions:fetch` or `npm run sidecar:freeze`."
         ))
     }
     #[cfg(not(windows))]
     {
         Err(format!(
-            "{SIDECAR_UNIX_NAME} / {CLIENT_PY_NAME} not found next to CultForge. Place a frozen client binary or client.py beside the app."
+            "{SIDECAR_UNIX_NAME} / {CLIENT_PY_NAME} not found next to CultForge. Run `npm run companions:fetch` or place client beside the app."
         ))
     }
 }
@@ -205,6 +234,9 @@ fn client_log_path(workdir: &std::path::Path) -> PathBuf {
 
 fn spawn_client(port: u16) -> Result<(), String> {
     let (sidecar, is_frozen) = resolve_sidecar()?;
+    if is_frozen {
+        prepare_sidecar_binary(&sidecar)?;
+    }
     eprintln!(
         "[cultforge] Resolving sidecar → {} ({})",
         sidecar.display(),
@@ -285,6 +317,7 @@ fn kill_client() {
     // Nuitka onefile / orphans from previous crashes
     win_proc::kill_image("client.exe");
     win_proc::kill_image("cultforge-sidecar.exe");
+    win_proc::kill_image("client");
 }
 
 fn cleanup_helpers() {
@@ -356,6 +389,7 @@ pub fn run() {
             downloads::start_modrinth_install,
             downloads::start_guild_manifest_sync,
             downloads::check_guild_manifest_sync,
+            downloads::mark_guild_instance_synced,
             downloads::list_managed_instances,
             downloads::cancel_download,
             downloads::list_download_jobs,
@@ -378,6 +412,8 @@ pub fn run() {
             instances::open_instance_subdir,
             instances::pick_content_files,
             instances::import_instance_files,
+            instances::import_world,
+            instances::import_content_url,
             instances::duplicate_build_instance,
             instances::export_build_pack,
             build_meta::read_build_notes,

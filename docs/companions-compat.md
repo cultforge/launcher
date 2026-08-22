@@ -28,3 +28,5 @@ npm run broker:upload-windows
 ```bash
 npm run companions:fetch
 ```
+
+On Linux/macOS the launcher resolves `resources/client`, runs `chmod +x`, and clears macOS quarantine when spawning. Release CI bundles `scanner` + `client`.

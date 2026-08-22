@@ -136,11 +136,11 @@ jobs:
           const id = process.env.MATRIX_ID;
           if (id === "linux") {
             c.bundle.targets = ["appimage", "deb"];
-            // Phase 1: ship scanner; client/broker still Windows-only.
-            c.bundle.resources = ["resources/scanner"];
+            // Phase 1–2: scanner + client (broker still Windows-only).
+            c.bundle.resources = ["resources/scanner", "resources/client"];
           } else if (id === "macos") {
             c.bundle.targets = ["dmg"];
-            c.bundle.resources = ["resources/scanner"];
+            c.bundle.resources = ["resources/scanner", "resources/client"];
           } else {
             c.bundle.targets = ["msi", "nsis"];
           }
@@ -151,15 +151,18 @@ jobs:
           console.log("Prepared", path, "for", id, "resources=", c.bundle.resources);
           NODE
 
-      - name: Verify scanner companion
+      - name: Verify unix companions
+        if: matrix.id != 'windows'
         shell: bash
         run: |
-          if [[ "${{ matrix.id }}" == "windows" ]]; then
-            test -f src-tauri/resources/scanner.exe
-          else
-            test -f src-tauri/resources/scanner
-            chmod +x src-tauri/resources/scanner
-          fi
+          test -f src-tauri/resources/scanner
+          test -f src-tauri/resources/client
+          chmod +x src-tauri/resources/scanner src-tauri/resources/client
+
+      - name: Verify scanner companion (Windows)
+        if: matrix.id == 'windows'
+        shell: bash
+        run: test -f src-tauri/resources/scanner.exe
 
       - name: Verify Windows sidecars
         if: matrix.id == 'windows'
