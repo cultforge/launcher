@@ -1,14 +1,26 @@
-//! Local Minecraft server status broker (`ctfgbroker.exe` / mping).
+//! Local Minecraft server status broker (`ctfgbroker` / mping).
 
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::sync::Mutex;
 use once_cell::sync::Lazy;
 
+use crate::win_proc;
+
 static MPING_CHILD: Lazy<Mutex<Option<Child>>> = Lazy::new(|| Mutex::new(None));
 const DEFAULT_PORT: u16 = 8270;
-const BROKER_EXE: &str = "ctfgbroker.exe";
+
+fn broker_binary_names() -> &'static [&'static str] {
+    #[cfg(windows)]
+    {
+        &["ctfgbroker.exe", "ctfgbroker"]
+    }
+    #[cfg(not(windows))]
+    {
+        &["ctfgbroker", "ctfgbroker.exe"]
+    }
+}
 
 fn cultforge_home() -> PathBuf {
     if let Ok(home) = std::env::var("CULTFORGE_HOME") {
@@ -28,35 +40,57 @@ fn cultforge_home() -> PathBuf {
     PathBuf::from("CultForge")
 }
 
+fn prepare_broker_binary(path: &Path) -> Result<(), String> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let meta = std::fs::metadata(path)
+            .map_err(|e| format!("broker metadata {}: {e}", path.display()))?;
+        let mut perms = meta.permissions();
+        let mode = perms.mode();
+        if mode & 0o111 == 0 {
+            perms.set_mode(mode | 0o755);
+            std::fs::set_permissions(path, perms)
+                .map_err(|e| format!("chmod +x {}: {e}", path.display()))?;
+        }
+        let _ = Command::new("xattr")
+            .args(["-d", "com.apple.quarantine"])
+            .arg(path)
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status();
+    }
+    let _ = path;
+    Ok(())
+}
+
 fn look_for_broker() -> Option<PathBuf> {
-    // Prefer next to running CultForge.exe (installed MSI/NSIS).
+    let names = broker_binary_names();
+    let mut candidates: Vec<PathBuf> = Vec::new();
     if let Ok(exe) = std::env::current_exe() {
         if let Some(dir) = exe.parent() {
-            let next = dir.join(BROKER_EXE);
-            if next.is_file() {
-                return Some(next);
-            }
-            let nested = dir.join("resources").join(BROKER_EXE);
-            if nested.is_file() {
-                return Some(nested);
+            for name in names {
+                candidates.push(dir.join(name));
+                candidates.push(dir.join("resources").join(name));
             }
         }
     }
-    let home = cultforge_home().join(BROKER_EXE);
-    if home.is_file() {
-        return Some(home);
+    let home = cultforge_home();
+    for name in names {
+        candidates.push(home.join(name));
     }
-    let res = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("resources")
-        .join(BROKER_EXE);
-    if res.is_file() {
-        return Some(res);
+    let manifest = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    for name in names {
+        candidates.push(manifest.join("resources").join(name));
+        candidates.push(manifest.join("..").join(name));
     }
-    let workspace = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("..")
-        .join(BROKER_EXE);
-    if workspace.is_file() {
-        return Some(workspace);
+    for candidate in candidates {
+        if candidate.is_file() {
+            if let Ok(canonical) = candidate.canonicalize() {
+                return Some(canonical);
+            }
+            return Some(candidate);
+        }
     }
     None
 }
@@ -108,7 +142,7 @@ pub fn read_mping_servers() -> Result<Vec<String>, String> {
     Ok(list)
 }
 
-/// Spawn ctfgbroker.exe if present (idempotent).
+/// Spawn ctfgbroker if present (idempotent).
 #[tauri::command]
 pub fn ensure_mping_broker() -> Result<String, String> {
     {
@@ -126,8 +160,11 @@ pub fn ensure_mping_broker() -> Result<String, String> {
         }
     }
 
-    let broker = look_for_broker()
-        .ok_or_else(|| format!("{BROKER_EXE} not found (bundle or place next to CultForge)"))?;
+    let broker = look_for_broker().ok_or_else(|| {
+        "ctfgbroker not found. Run `npm run companions:fetch` or place it next to CultForge."
+            .to_string()
+    })?;
+    prepare_broker_binary(&broker)?;
 
     // Ensure mping.json exists so broker does not exit 0 immediately.
     let path = mping_json_path();
@@ -146,11 +183,11 @@ pub fn ensure_mping_broker() -> Result<String, String> {
         .stdout(Stdio::null())
         .stderr(Stdio::null());
 
-    crate::win_proc::apply_no_window(&mut cmd);
+    win_proc::apply_no_window(&mut cmd);
 
     let child = cmd
         .spawn()
-        .map_err(|e| format!("Failed to spawn {BROKER_EXE}: {e}"))?;
+        .map_err(|e| format!("Failed to spawn ctfgbroker: {e}"))?;
     *MPING_CHILD.lock().unwrap() = Some(child);
     Ok(format!(
         "started {} (home {}, port {})",
@@ -162,7 +199,8 @@ pub fn ensure_mping_broker() -> Result<String, String> {
 
 pub fn kill_mping_broker() {
     if let Some(mut child) = MPING_CHILD.lock().unwrap().take() {
-        crate::win_proc::kill_tree(&mut child);
+        win_proc::kill_tree(&mut child);
     }
-    crate::win_proc::kill_image(BROKER_EXE);
+    win_proc::kill_image("ctfgbroker.exe");
+    win_proc::kill_image("ctfgbroker");
 }

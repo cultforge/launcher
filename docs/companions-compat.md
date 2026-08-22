@@ -1,41 +1,30 @@
-# Companion compatibility (Phase 0–2)
+# Companion compatibility (Phase 0–3)
 
-Contract that maps **launcher semver → allowed companion binary release tags**.
+Maps **launcher semver → allowed companion binary release tags**.
 
-Source of truth: [`src/data/companions.compat.json`](../src/data/companions.compat.json)  
-Fetch: [`scripts/fetch-companions.mjs`](../scripts/fetch-companions.mjs)
+Source: [`src/data/companions.compat.json`](../src/data/companions.compat.json)  
+Fetch: `npm run companions:fetch`
 
-## Phases
+## Status
 
-| Phase | Companion | Status |
-|-------|-----------|--------|
+| Phase | Companion | Tag / source |
+|-------|-----------|----------------|
 | 0 | compat map | shipped |
-| 1 | `scanner` | `active` @ mc-scanner `v0.1.0` |
-| 2 | `client` | `active` @ launcher `client-v0.1.0` |
-| 3 | `ctfgbroker` | `pending` |
+| 1 | scanner | `cultforge/mc-scanner` @ `v0.1.0` |
+| 2 | client | `cultforge/launcher` @ `client-v0.1.0` — Windows manual, Linux/macOS Actions |
+| 3 | ctfgbroker | `cultforge/launcher` @ `broker-v0.1.0` — Windows manual (unix TBD) |
 
-## Client build split (Phase 2)
+## Uploads (Windows)
 
-| OS | How |
-|----|-----|
-| **Windows** | Local `npm run sidecar:freeze`, then upload `client.exe` to the release |
-| **Linux / macOS** | GitHub Actions **Build client (Nuitka)** only |
+```powershell
+npm run sidecar:freeze
+npm run client:upload-windows
 
-```bash
-# CI (unix)
-gh workflow run "Build client (Nuitka)" --repo cultforge/launcher -f tag=client-v0.1.0
-
-# Windows (after freeze finishes)
-powershell -ExecutionPolicy Bypass -File scripts/upload-client-windows.ps1 -Tag client-v0.1.0
+npm run broker:upload-windows
 ```
 
-Assets on `client-v0.1.0`:
-
-- `client.exe` (manual)
-- `client-linux-x86_64`, `client-macos-arm64`, `client-macos-x86_64` (Actions)
+## Fetch into resources
 
 ```bash
 npm run companions:fetch
-# or
-node scripts/fetch-companions.mjs --only client
 ```

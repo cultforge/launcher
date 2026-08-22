@@ -31,12 +31,14 @@
           }
         },
         "ctfgbroker": {
-          "repo": null,
-          "status": "pending",
-          "tag": null,
-          "min_tag": null,
-          "max_tag": null,
-          "assets": {}
+          "repo": "cultforge/launcher",
+          "status": "active",
+          "tag": "broker-v0.1.0",
+          "min_tag": "broker-v0.1.0",
+          "max_tag": "broker-v0.1.0",
+          "assets": {
+            "windows-x86_64": "ctfgbroker.exe"
+          }
         }
       }
     },
@@ -69,12 +71,14 @@
           }
         },
         "ctfgbroker": {
-          "repo": null,
-          "status": "pending",
-          "tag": null,
-          "min_tag": null,
-          "max_tag": null,
-          "assets": {}
+          "repo": "cultforge/launcher",
+          "status": "active",
+          "tag": "broker-v0.1.0",
+          "min_tag": "broker-v0.1.0",
+          "max_tag": "broker-v0.1.0",
+          "assets": {
+            "windows-x86_64": "ctfgbroker.exe"
+          }
         }
       }
     }
