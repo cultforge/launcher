@@ -60,6 +60,7 @@ function local(overrides: Partial<BuildInstance> = {}): BuildInstance {
     releaseId: "rel-1",
     buildKey: "bld-1",
     syncStatus: "synced",
+    manifestGeneratedAt: null,
     ...overrides,
   };
 }

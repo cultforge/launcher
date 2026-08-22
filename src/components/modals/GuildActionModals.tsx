@@ -18,10 +18,8 @@ import { GuildModalShell } from "../guilds/GuildModalShell";
 import {
   guildDangerBtnClass,
   guildFieldClass,
-  guildHintClass,
   guildLabelClass,
   guildPrimaryBtnClass,
-  guildSectionClass,
   guildTextareaClass,
 } from "../guilds/guildFormStyles";
 import { useAppStore } from "../../userstore";

@@ -65,8 +65,12 @@ Write-Host "0/5 companions:fetch (scanner + client)..."
 if ($LASTEXITCODE -ne 0) { throw "companions:fetch failed" }
 
 Write-Host "1/5 sidecar:freeze..."
-& powershell -ExecutionPolicy Bypass -File (Join-Path $Root "scripts\freeze-sidecar.ps1")
-if ($LASTEXITCODE -ne 0) { throw "sidecar:freeze failed" }
+if ($env:CULTFORGE_SKIP_SIDECAR_FREEZE -eq "1") {
+  Write-Host "Skipping sidecar freeze (CULTFORGE_SKIP_SIDECAR_FREEZE=1)"
+} else {
+  & powershell -ExecutionPolicy Bypass -File (Join-Path $Root "scripts\freeze-sidecar.ps1")
+  if ($LASTEXITCODE -ne 0) { throw "sidecar:freeze failed" }
+}
 
 $Sidecar = Join-Path $Root "dist-sidecar\client.exe"
 $RootClient = Join-Path $Root "client.exe"

@@ -15,7 +15,7 @@ import type {
   GuildBuildInstallState,
   GuildBuildRelease,
 } from "../../../types/buildManifest";
-import { useDownloadStore, useNavigationStore } from "../../../typlibs";
+import { useDownloadStore } from "../../../typlibs";
 import { goHomeBuilds } from "../../../lib/homeNav";
 import { EntityImage } from "../../EntityImage";
 import type { GuildServer } from "../../../data/guilds";
@@ -299,8 +299,6 @@ export function BuildsPanel() {
   const storeServers = useGuildStore((state) => state.servers);
   const builds = useBuildStore((state) => state.builds);
   const setActiveBuild = useBuildStore((state) => state.setActive);
-  const setPrimaryTab = useNavigationStore((state) => state.setPrimaryTab);
-  const setSideItem = useNavigationStore((state) => state.setSideItem);
   const downloadQueue = useDownloadStore((state) => state.queue);
 
   const releases = useMemo(

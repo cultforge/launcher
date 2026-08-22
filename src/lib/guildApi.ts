@@ -256,8 +256,9 @@ export function membershipFromApiRecord(
   const profileId = (record.user?.user_id ?? record.user_id ?? "").trim();
   const rawAvatar =
     record.user?.avatar_url ??
-    (typeof (record as { avatar_url?: unknown }).avatar_url === "string"
-      ? (record as { avatar_url: string }).avatar_url
+    (typeof (record as unknown as { avatar_url?: unknown }).avatar_url ===
+    "string"
+      ? (record as unknown as { avatar_url: string }).avatar_url
       : null);
   const avatarUrl = rawAvatar?.trim()
     ? canonicalizeHostedAvatarUrl(profileId, rawAvatar.trim())

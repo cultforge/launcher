@@ -299,7 +299,7 @@ function guildServerControlTarget(
 function GuildServerControlPanel({
   server,
   fleet,
-  tall = false,
+  tall: _tall = false,
 }: {
   server: GuildServer;
   fleet: ReturnType<typeof useAgentFleet>;

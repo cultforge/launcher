@@ -1,6 +1,6 @@
 import { useEffect, useMemo } from "react";
 import { ResponsiveLine } from "@nivo/line";
-import { Cpu, MemoryStick, Network } from "lucide-react";
+import { MemoryStick, Network } from "lucide-react";
 import PerformanceChart from "../../../widgets/performance";
 import { useBuildStore } from "../../../stores/build";
 import {

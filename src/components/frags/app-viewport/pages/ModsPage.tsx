@@ -124,7 +124,6 @@ function searchPlaceholder(tab: LibraryTab): string {
 function ModsPage() {
   const sideItem = useNavigationStore((state) => state.sideItem);
   const setPrimaryTab = useNavigationStore((state) => state.setPrimaryTab);
-  const setSideItem = useNavigationStore((state) => state.setSideItem);
   const setBuildTab = useBuildUiStore((state) => state.setActiveTab);
   const activeBuild = useBuildStore((state) => state.active());
   const items = useLibraryContentStore((state) => state.items);

@@ -5,7 +5,7 @@ import {
 import { useGuildStore } from "../stores/guilds";
 import { useProfileRouteStore } from "../stores/profileRoute";
 import { parseAgentLinkCode } from "./agentLink";
-import { goHomeBuilds, HOME_BUILDS_SIDE } from "./homeNav";
+import { HOME_BUILDS_SIDE } from "./homeNav";
 
 export type CultforgeDeepLink =
   | { kind: "guild"; guildId: string }
@@ -181,9 +181,7 @@ export function navigateCultforgeDeepLink(href: string): boolean {
       if (target === "discord" || target === "downloads" || target === "friends" || target === "discover" || target === "updates" || target === "home") {
         nav.setPrimaryTab("Home" as PrimaryTab);
         nav.setSideItem(
-          target === "home" || target === "builds"
-            ? HOME_BUILDS_SIDE
-            : target.charAt(0).toUpperCase() + target.slice(1),
+          target === "home" ? HOME_BUILDS_SIDE : target.charAt(0).toUpperCase() + target.slice(1),
         );
         return true;
       }

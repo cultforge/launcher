@@ -14,7 +14,7 @@ import {
   type SettingsCategory,
 } from "../stores/settingsUi";
 import { useNavigationStore, type PrimaryTab } from "../typlibs";
-import { goHomeBuilds, HOME_BUILDS_SIDE } from "./homeNav";
+import { HOME_BUILDS_SIDE } from "./homeNav";
 import {
   inferChloeActionType,
   type ChloePendingAction,

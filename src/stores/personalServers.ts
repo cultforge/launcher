@@ -23,8 +23,7 @@ type PersonalServersStore = {
   remove: (id: string) => Promise<void>;
 };
 
-export const usePersonalServersStore = create<PersonalServersStore>(
-  (set, get) => ({
+export const usePersonalServersStore = create<PersonalServersStore>((set) => ({
     servers: [],
     selected: null,
     loading: false,
@@ -61,5 +60,4 @@ export const usePersonalServersStore = create<PersonalServersStore>(
         selected: s.selected === id ? null : s.selected,
       }));
     },
-  }),
-);
+}));
