@@ -1,4 +1,3 @@
-import DiscoverPage from "./DiscoverPage";
 import UpdatesPage from "./UpdatesPage";
 import FriendsPage from "./FriendsPage";
 import SettingsPage from "./SettingsPage";
@@ -16,6 +15,8 @@ import { Chip } from "@heroui/react";
 import { Icon } from "../../../ico";
 import { AppIcons } from "../../../icons";
 import { useNavigationStore, type PrimaryTab } from "../../../../typlibs";
+import { useGuildStore } from "../../../../stores/guilds";
+import { goHomeBuilds } from "../../../../lib/homeNav";
 import {
   QUICK_ACTIONS,
   type ActivityKind,
@@ -39,6 +40,7 @@ import DownloadsPage from "./DownloadsPage";
 import { canLaunchBuild } from "../../../../lib/launchGate";
 import { launchMinecraft } from "../../../../lib/launchMinecraft";
 import { useLaunchStore } from "../../../../stores/launch";
+import { ShimmerButton } from "../../../magic/shimmer-button";
 
 function kindIcon(kind: ActivityKind) {
   switch (kind) {
@@ -80,7 +82,7 @@ function ContinueBar() {
       variants={lift}
       initial="rest"
       whileHover="hover"
-      className="cf-panel relative flex items-center justify-between gap-4 rounded-xl px-4 py-3.5"
+      className="cf-panel relative flex items-center justify-between gap-4 overflow-hidden rounded-xl px-4 py-3.5"
     >
       <div className="relative z-10 flex items-center gap-3.5 min-w-0">
         <EntityImage
@@ -97,24 +99,20 @@ function ContinueBar() {
               <Chip.Label>{active.status}</Chip.Label>
             </Chip>
           </div>
-          <div className="flex flex-wrap gap-x-2.5 text-[11px] text-text-muted">
-            <span>MC {active.mc}</span>
-            <span className="opacity-30">·</span>
-            <span>{active.loader}</span>
-            <span className="opacity-30">·</span>
-            <span>{active.mods} mods</span>
-            <span className="opacity-30">·</span>
-            <span>Last played {active.lastPlayed}</span>
+          <div className="text-[11px] text-text-muted truncate">
+            {active.lastPlayed
+              ? `Last played ${active.lastPlayed}`
+              : "Ready when you are"}
           </div>
         </div>
       </div>
       <div className="relative z-10 shrink-0">
-        <button
+        <ShimmerButton
           type="button"
           disabled={!launch.ok || starting}
           title={launch.reason}
           onClick={() => void launchMinecraft(active)}
-          className="cf-btn-primary flex items-center gap-2 px-7 py-2.5 rounded-lg text-[13px] tracking-wide cursor-pointer disabled:opacity-45 disabled:cursor-not-allowed"
+          className="flex items-center gap-2 px-7 py-2.5 text-[13px] tracking-wide disabled:opacity-45 disabled:cursor-not-allowed"
         >
           <Icon icon={AppIcons.Play} size={15} />
           {busy && runningBuildId === active.id
@@ -122,7 +120,7 @@ function ContinueBar() {
             : starting
               ? "STARTING…"
               : "PLAY"}
-        </button>
+        </ShimmerButton>
       </div>
     </motion.header>
   );
@@ -241,7 +239,7 @@ function QuickActionsCard() {
     <SpotlightCard className="cf-panel rounded-xl h-full">
       <section className="p-4 flex flex-col h-full">
         <h3 className="text-[10px] font-semibold uppercase tracking-[0.16em] text-text-muted mb-2">
-          Quick Actions
+          Your build
         </h3>
         <div className="flex flex-col gap-0.5 flex-1">
           {QUICK_ACTIONS.map((a) => (
@@ -407,6 +405,8 @@ function FeaturedAddons() {
 function HomeDashboard() {
   const setSideItem = useNavigationStore((s) => s.setSideItem);
   const setPrimaryTab = useNavigationStore((s) => s.setPrimaryTab);
+  const setHubTab = useGuildStore((s) => s.setHubTab);
+  const setDiscoverOpen = useGuildStore((s) => s.setDiscoverOpen);
 
   const onRow = (item: ActivityItem) => {
     if (item.action === "updates") {
@@ -414,8 +414,7 @@ function HomeDashboard() {
       return;
     }
     if (item.action === "builds") {
-      setPrimaryTab("Builds" as PrimaryTab);
-      setSideItem("Builds");
+      goHomeBuilds();
       return;
     }
     if (item.action === "store") {
@@ -426,6 +425,8 @@ function HomeDashboard() {
     if (item.action === "guilds") {
       setPrimaryTab("Guilds" as PrimaryTab);
       setSideItem("Guilds");
+      setDiscoverOpen(false);
+      setHubTab("Overview");
     }
   };
 
@@ -459,7 +460,6 @@ function HomeDashboard() {
 
 function HomePage() {
   const sideItem = useNavigationStore((s) => s.sideItem);
-  if (sideItem === "Discover") return <DiscoverPage />;
   if (sideItem === "Updates") return <UpdatesPage />;
   if (sideItem === "Friends") return <FriendsPage />;
   if (sideItem === "Discord") return <DiscordPage />;

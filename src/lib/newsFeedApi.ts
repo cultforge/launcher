@@ -141,7 +141,9 @@ export function newsStoryFromFeedCard(card: LauncherNewsFeedCard): NewsStory {
 }
 
 export function kindsForFilter(filter: DiscoverFilter): string | undefined {
-  if (filter === "All") return "global,guild_news";
+  if (filter === "All" || filter === "Saved" || filter === "Minecraft") {
+    return "global,guild_news";
+  }
   if (filter === "Launcher" || filter === "Packs") return "global";
   if (filter === "Community") return "guild_news";
   return undefined;

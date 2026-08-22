@@ -249,16 +249,58 @@ export async function pickContentFiles(kind: string): Promise<string[]> {
   return invoke<string[]>("pick_content_files", { kind });
 }
 
+export type ImportReroute = {
+  name: string;
+  fromKind: string;
+  toKind: string;
+};
+
+export type ImportFilesResult = {
+  imported: number;
+  reroutes: ImportReroute[];
+};
+
 export async function importInstanceFiles(
   buildId: string,
   destKind: string,
   paths: string[],
-): Promise<number> {
+): Promise<ImportFilesResult> {
   if (!isTauri()) throw new Error("Import requires the CultForge desktop app");
-  return invoke<number>("import_instance_files", {
+  return invoke<ImportFilesResult>("import_instance_files", {
     buildId,
     destKind,
     paths,
+  });
+}
+
+export type ImportWorldResult = {
+  worldPath: string;
+  worldName: string;
+};
+
+export async function importWorldNative(
+  buildId: string,
+  source: string,
+  sourceKind?: "folder" | "zip" | "url",
+): Promise<ImportWorldResult> {
+  if (!isTauri()) throw new Error("Import requires the CultForge desktop app");
+  return invoke<ImportWorldResult>("import_world", {
+    buildId,
+    source,
+    sourceKind: sourceKind ?? null,
+  });
+}
+
+export async function importContentUrlNative(
+  buildId: string,
+  destKind: string,
+  url: string,
+): Promise<ImportFilesResult> {
+  if (!isTauri()) throw new Error("Import requires the CultForge desktop app");
+  return invoke<ImportFilesResult>("import_content_url", {
+    buildId,
+    destKind,
+    url,
   });
 }
 

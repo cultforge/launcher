@@ -21,6 +21,12 @@ class LiveGlobalChatTransport implements GlobalChatTransport {
     void fetchGlobalChatHistory()
       .then((messages) => {
         listener({
+          type: "presence",
+          sequence: 0,
+          emittedAt: new Date().toISOString(),
+          payload: { online: messages.length > 0 ? -1 : 0, connected: true },
+        } as GlobalChatEventEnvelope);
+        listener({
           type: "history",
           sequence: messages[messages.length - 1]?.sequence ?? 0,
           emittedAt: new Date().toISOString(),
@@ -28,6 +34,12 @@ class LiveGlobalChatTransport implements GlobalChatTransport {
         });
       })
       .catch(() => {
+        listener({
+          type: "presence",
+          sequence: 0,
+          emittedAt: new Date().toISOString(),
+          payload: { online: 0, connected: false },
+        } as GlobalChatEventEnvelope);
         listener({
           type: "history",
           sequence: 0,

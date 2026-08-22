@@ -147,6 +147,16 @@ export function resolveGuildChatRole(opts: {
   return "Member";
 }
 
+/** Guild owner, Leader, or explicit `build.publish_public` permission. */
+export function canPublishPublicCatalog(opts: {
+  role?: GuildRole | null;
+  permissions?: string[];
+  isOwner?: boolean;
+}): boolean {
+  if (opts.isOwner || opts.role === "Leader") return true;
+  return (opts.permissions ?? []).includes("build.publish_public");
+}
+
 export function canManageMember(
   actor: GuildMember | undefined,
   target: GuildMember | undefined,

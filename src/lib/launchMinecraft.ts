@@ -20,6 +20,14 @@ import {
 import { formatPlaytime, touchBuildLastPlayed } from "./buildMeta";
 import { useBuildStore } from "../stores/build";
 import { ensureJavaForBuild, javaMajorFromBuild } from "./javaRuntime";
+import {
+  ensureRuntimeVersionId,
+  loaderLabel,
+  normalizeLoaderKind,
+} from "./loaderInstall";
+import { resolveServersForBuild } from "./resolveServersForBuild";
+import { useGuildStore } from "../stores/guilds";
+import { usePersonalServersStore } from "../stores/personalServers";
 
 function isTauri(): boolean {
   return typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
@@ -48,6 +56,7 @@ export type LaunchMinecraftNativeArgs = {
   height?: number | null;
   dedicatedGpu?: boolean | null;
   wrapper?: string | null;
+  serverList?: Array<{ name: string; ip: string }> | null;
 };
 
 function basenamePath(path: string): string {
@@ -94,14 +103,43 @@ export async function resolveMinecraftVersionId(
     return build.id;
   }
 
+  const wantLoader = normalizeLoaderKind(build.loader);
+  const mc = (build.mc || "").trim();
   const candidates = [build.version, build.mc]
     .map((s) => s?.trim())
     .filter((s): s is string => Boolean(s && s !== "—"));
 
-  if (candidates.length === 0) return null;
+  if (candidates.length === 0 && !mc) return null;
 
   try {
     const locals = await listLocalBuilds();
+
+    // Prefer an installed profile that matches both MC + loader (Forge ≠ vanilla).
+    if (mc) {
+      const loaderHits = locals
+        .filter((b) => {
+          const loader = (b.loader || "").toLowerCase();
+          const matchesLoader =
+            wantLoader === "vanilla"
+              ? !loader.includes("forge") &&
+                !loader.includes("fabric") &&
+                !loader.includes("quilt")
+              : wantLoader === "neoforge"
+                ? loader.includes("neoforge")
+                : wantLoader === "forge"
+                  ? loader.includes("forge") && !loader.includes("neoforge")
+                  : loader.includes(wantLoader);
+          const matchesMc =
+            b.mc === mc ||
+            b.id === mc ||
+            b.id.startsWith(`${mc}-`) ||
+            b.id.includes(`-${mc}-`);
+          return matchesLoader && matchesMc;
+        })
+        .sort((a, b) => (b.modifiedMs ?? 0) - (a.modifiedMs ?? 0));
+      if (loaderHits[0]) return loaderHits[0].id;
+    }
+
     for (const want of candidates) {
       const exact = locals.find((b) => b.id === want);
       if (exact) return exact.id;
@@ -116,7 +154,7 @@ export async function resolveMinecraftVersionId(
     // Fall through
   }
 
-  return candidates[0] ?? null;
+  return mc || candidates[0] || null;
 }
 
 export async function getLaunchStatus(): Promise<LaunchStatus> {
@@ -179,7 +217,35 @@ export async function launchMinecraft(build: BuildInstance): Promise<boolean> {
     // continue
   }
 
-  const versionId = await resolveMinecraftVersionId(build);
+  const loaderKind = normalizeLoaderKind(build.loader);
+  let versionId: string | null = null;
+  try {
+    // If we already resolved a versionPath for this build, try it directly
+    // instead of re-scanning all local builds every launch.
+    if (build.versionPath?.trim()) {
+      const cached = build.versionPath.replace(/\\/g, "/").replace(/\/+$/, "").split("/").pop();
+      if (cached) versionId = cached;
+    }
+
+    if (!versionId) {
+      if (loaderKind !== "vanilla" || build.managed) {
+        if (loaderKind !== "vanilla") {
+          toast.message(`Preparing ${loaderLabel(loaderKind)}…`, {
+            description: `Minecraft ${build.mc} · ${loaderLabel(loaderKind)}`,
+          });
+        }
+        versionId = await ensureRuntimeVersionId(build);
+      } else {
+        versionId = await resolveMinecraftVersionId(build);
+      }
+    }
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    toast.error("Could not prepare Minecraft runtime", {
+      description: message,
+    });
+    return false;
+  }
   if (!versionId) {
     toast.error("No Minecraft version linked", {
       description:
@@ -192,20 +258,18 @@ export async function launchMinecraft(build: BuildInstance): Promise<boolean> {
   logger.info(`Launch requested: ${build.name} (${versionId})`);
 
   try {
-    // Guild-managed builds: verify against guild manifest (add missing / prune extras)
-    if (build.managed && build.releaseId && navigator.onLine) {
-      logger.info(`Verifying guild build against manifest: ${build.releaseId}`);
-      toast.message("Verifying guild build…", {
-        description: "Syncing files to the guild catalog before launch.",
-      });
+    // Guild-managed: level-1 manifest sync (mods + resource packs). If already
+    // matching locally → play immediately. Otherwise download only what's missing.
+    if (build.managed && build.releaseId) {
+      logger.info(`Level-1 play sync for guild build: ${build.releaseId}`);
       try {
-        const { syncManagedBuild } = await import("./guildBuildSync");
-        await syncManagedBuild(build.id, { quiet: false });
+        const { ensureGuildPlayReady } = await import("./guildBuildSync");
+        await ensureGuildPlayReady(build.id);
       } catch (syncErr) {
         const msg =
           syncErr instanceof Error ? syncErr.message : String(syncErr);
-        logger.warn(`Guild manifest verify failed: ${msg}`);
-        toast.error("Guild build out of sync", {
+        logger.warn(`Level-1 play sync failed: ${msg}`);
+        toast.error("Build not ready to play", {
           description: msg,
         });
         return false;
@@ -249,6 +313,20 @@ export async function launchMinecraft(build: BuildInstance): Promise<boolean> {
     }
 
     const playerName = offlinePlayerNameFromProfile();
+    const guildServers = useGuildStore.getState().servers;
+    const personalServers = usePersonalServersStore.getState().servers;
+    const serverList = resolveServersForBuild(
+      build,
+      guildServers,
+      personalServers,
+    );
+    if (serverList.length) {
+      logger.info(
+        `Writing servers.dat (${serverList.length}): ${serverList
+          .map((s) => s.ip)
+          .join(", ")}`,
+      );
+    }
     const args: LaunchMinecraftNativeArgs = {
       versionId,
       gameDir,
@@ -264,6 +342,7 @@ export async function launchMinecraft(build: BuildInstance): Promise<boolean> {
       height: height ?? null,
       dedicatedGpu: cfg.dedicatedGpu,
       wrapper: cfg.wrapper?.trim() || null,
+      serverList: serverList.length ? serverList : null,
     };
 
     const result = await invoke<LaunchStatus>("launch_minecraft", { args });
@@ -317,7 +396,9 @@ export async function launchMinecraft(build: BuildInstance): Promise<boolean> {
 
     await enterLaunchIdleMode();
 
-    const toTray = cfg.closeOnLaunch || settings.closeOnLaunch;
+    const draft = useSettingsStore.getState().draft;
+    const toTray =
+      cfg.closeOnLaunch || settings.closeOnLaunch || draft.closeOnLaunch;
     if (toTray) {
       try {
         await invoke("minimize_to_tray");

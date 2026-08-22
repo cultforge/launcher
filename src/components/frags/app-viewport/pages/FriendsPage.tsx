@@ -171,7 +171,7 @@ export default function FriendsPage() {
           </p>
           <p className="mt-2 text-[12px] text-text-muted max-w-sm mx-auto">
             {friends.length === 0
-              ? "Add friends on CultForge, then refresh. Use Guilds → Find Players to look someone up."
+              ? "Add friends on CultForge, then refresh. Open Guilds and switch to the Players tab to look someone up."
               : "Try a different search or status filter."}
           </p>
         </div>

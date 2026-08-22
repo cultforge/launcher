@@ -7,13 +7,17 @@ import {
   type BuildInstance,
 } from "../stores/build";
 import { useSettingsStore } from "../stores/settings";
+import { useLibraryContentStore } from "../stores/libraryContent";
 import {
   ensureBuildInstance,
   startGuildManifestSync,
+  checkGuildManifestSync,
+  markGuildInstanceSynced,
   type GuildManifestSyncFile,
   type GuildManifestSyncPlan,
+  type GuildSyncCheckResult,
 } from "./localContent";
-import { fetchBuildManifest } from "./guildBuildApi";
+import { fetchGuildBuildRelease, resolveGuildInstallManifest } from "./guildBuildApi";
 import { guildInstanceId } from "./guildInstanceId";
 import { listenNativeDownloadProgress } from "./nativeDownloads";
 import { logger } from "./logger";
@@ -27,6 +31,42 @@ function manifestToSyncFiles(manifest: BuildManifest): GuildManifestSyncFile[] {
     sha512: file.hashes.sha512,
     environment: file.environment,
   }));
+}
+
+async function rescanLibrary(location: string | undefined | null) {
+  const path = location?.trim();
+  if (!path) return;
+  try {
+    await useLibraryContentStore.getState().scan(path);
+    const items = useLibraryContentStore.getState().items;
+    useBuildStore.getState().applyContentStats({
+      mods: items.filter((i) => i.kind === "mod").length,
+      worlds: items.filter((i) => i.kind === "world").length,
+    });
+  } catch (err) {
+    logger.warn(
+      `Library rescan after sync failed: ${err instanceof Error ? err.message : String(err)}`,
+    );
+  }
+}
+
+function fetchBytesForPaths(
+  files: GuildManifestSyncFile[],
+  paths: string[],
+  syncMode: "play" | "full",
+): number {
+  const want = new Set(paths.map((p) => p.replace(/\\/g, "/").toLowerCase()));
+  return files
+    .filter((file) => {
+      const path = file.path.replace(/\\/g, "/").toLowerCase();
+      if (syncMode === "play") {
+        if (!path.startsWith("mods/") && !path.startsWith("resourcepacks/")) {
+          return false;
+        }
+      }
+      return want.has(path);
+    })
+    .reduce((sum, file) => sum + (Number(file.sizeBytes) || 0), 0);
 }
 
 function buildManagedInstance(
@@ -87,10 +127,10 @@ async function waitForJob(jobId: string): Promise<void> {
 
     const unlisten = listenNativeDownloadProgress((event) => {
       if (event.jobId !== jobId) return;
-      if (event.itemId !== "job" && event.phase !== "error" && event.phase !== "cancelled") {
-        return;
-      }
-      if (event.phase === "done" && event.itemId === "job") {
+      // Only settle on job-level terminal events so parallel file work can finish
+      // reporting without racing the waiter.
+      if (event.itemId !== "job") return;
+      if (event.phase === "done") {
         finish();
         return;
       }
@@ -114,8 +154,14 @@ async function runSyncPlan(
   manifest: BuildManifest,
   location: string,
   instanceId: string,
-  _quiet = false,
-): Promise<void> {
+  opts: {
+    quiet?: boolean;
+    force?: boolean;
+    syncMode?: "play" | "full";
+    onJob?: (jobId: string) => void;
+  } = {},
+): Promise<string> {
+  const syncMode = opts.syncMode ?? "full";
   const downloadsPath = useSettingsStore.getState().settings.downloadsPath;
   const cacheRoot =
     downloadsPath || `${location.replace(/[/\\]+$/, "")}/.cultforge-cache`;
@@ -123,6 +169,78 @@ async function runSyncPlan(
   const excludes = [
     ...new Set([...(manifest.excludes ?? []), ...(release.excludes ?? []), "saves/**"]),
   ];
+
+  const files = manifestToSyncFiles(manifest);
+
+  let onlyPaths: string[] | null = null;
+  let priorCheck: GuildSyncCheckResult | null = null;
+
+  // Fast path: already on disk and matching — do not start a download job.
+  if (!opts.force) {
+    try {
+      const check = await checkGuildManifestSync(
+        location,
+        files,
+        excludes,
+        syncMode,
+      );
+      priorCheck = check;
+      if (check.synced) {
+        const syncedPlan: GuildManifestSyncPlan = {
+          jobId: "",
+          instanceId,
+          buildLocation: location,
+          cacheRoot,
+          loader: release.dependencies.loader,
+          releaseId: release.id,
+          guildId: release.guildId,
+          buildKey: release.buildId,
+          name: release.name,
+          mc: release.dependencies.minecraft,
+          version: release.version,
+          java: release.dependencies.java,
+          image: release.image || null,
+          manifestGeneratedAt: manifest.generatedAt,
+          excludes,
+          files,
+          manifestJson: JSON.stringify(manifest, null, 2),
+          syncMode,
+        };
+        try {
+          await markGuildInstanceSynced(syncedPlan);
+        } catch (err) {
+          logger.warn(
+            `Could not persist synced meta: ${err instanceof Error ? err.message : String(err)}`,
+          );
+        }
+        useBuildStore.getState().patchBuild(instanceId, {
+          syncStatus: "synced",
+          status: "Ready",
+          releaseId: release.id,
+          buildKey: release.buildId,
+          version: release.version,
+          manifestGeneratedAt: manifest.generatedAt,
+        });
+        await rescanLibrary(location);
+        return "";
+      }
+      onlyPaths = [...check.missing, ...check.mismatched];
+      if (check.extras.length && !opts.quiet) {
+        toast.message("Removing files not in guild manifest…", {
+          description: `${check.extras.length} extra file${check.extras.length === 1 ? "" : "s"} will be pruned.`,
+        });
+      }
+      if (syncMode === "play") {
+        logger.info(
+          `Level-1 play sync: ${check.missing.length} missing, ${check.mismatched.length} mismatched, ${check.extras.length} extras`,
+        );
+      }
+    } catch (err) {
+      logger.warn(
+        `Guild sync check failed; continuing with sync (${err instanceof Error ? err.message : String(err)})`,
+      );
+    }
+  }
 
   const plan: GuildManifestSyncPlan = {
     jobId: "",
@@ -140,8 +258,10 @@ async function runSyncPlan(
     image: release.image || null,
     manifestGeneratedAt: manifest.generatedAt,
     excludes,
-    files: manifestToSyncFiles(manifest),
+    files,
     manifestJson: JSON.stringify(manifest, null, 2),
+    syncMode,
+    onlyPaths,
   };
 
   useBuildStore.getState().patchBuild(instanceId, {
@@ -149,72 +269,71 @@ async function runSyncPlan(
     status: "Update",
   });
 
+  const totalBytes =
+    onlyPaths != null
+      ? fetchBytesForPaths(files, onlyPaths, syncMode)
+      : priorCheck
+        ? fetchBytesForPaths(
+            files,
+            [...priorCheck.missing, ...priorCheck.mismatched],
+            syncMode,
+          )
+        : files
+            .filter((file) => {
+              if (syncMode !== "play") return true;
+              const path = file.path.replace(/\\/g, "/").toLowerCase();
+              return (
+                path.startsWith("mods/") || path.startsWith("resourcepacks/")
+              );
+            })
+            .reduce((sum, file) => sum + (Number(file.sizeBytes) || 0), 0);
+
   const jobId = await startGuildManifestSync(plan);
+  opts.onJob?.(jobId);
+
+  // Seed Downloads queue so Guild Builds + dock show live progress immediately.
+  const { useDownloadStore } = await import("../typlibs");
+  useDownloadStore.getState().enqueue({
+    id: jobId,
+    jobId,
+    name: release.name,
+    totalMb: totalBytes / (1024 * 1024),
+    totalBytes: Math.max(totalBytes, 1),
+    doneMb: 0,
+    progress: 0,
+    status: "active",
+    phase: totalBytes > 0 ? "checking" : "installing",
+  });
+
   await waitForJob(jobId);
 
   useBuildStore.getState().patchBuild(instanceId, {
     syncStatus: "synced",
     status: "Ready",
     releaseId: release.id,
+    buildKey: release.buildId,
     version: release.version,
     manifestGeneratedAt: manifest.generatedAt,
   });
+
+  await rescanLibrary(location);
+
+  return jobId;
 }
 
-/** Install or repair a guild release into a managed instance, then activate it. */
-export async function installGuildRelease(
-  release: GuildBuildRelease,
-): Promise<string> {
-  const instanceId = guildInstanceId(release.guildId, release.buildId);
-  const manifest = await fetchBuildManifest(release.id);
-
-  const ensured = await ensureBuildInstance(
-    instanceId,
-    release.dependencies.loader,
-  );
-  if (!ensured?.path) {
-    throw new Error("Could not create guild instance folder");
-  }
-
-  const build = buildManagedInstance(
-    release,
-    instanceId,
-    ensured.path,
-    manifest,
-    "syncing",
-  );
-  useBuildStore.getState().upsertBuild(build);
-  useBuildStore.getState().setActive(instanceId);
-
-  try {
-    await runSyncPlan(release, manifest, ensured.path, instanceId);
-    toast.success(`${release.name} is synced`, {
-      description: "Content matches the guild manifest.",
-    });
-  } catch (e) {
-    useBuildStore.getState().patchBuild(instanceId, {
-      syncStatus: "error",
-      status: "Update",
-    });
-    throw e;
-  }
-
-  return instanceId;
-}
-
-/** Re-fetch the release manifest and reconcile a managed local instance. */
-export async function syncManagedBuild(
-  instanceId: string,
-  options: { quiet?: boolean } = {},
-): Promise<void> {
-  const quiet = options.quiet === true;
+/**
+ * Level-1 play gate: compare local instance to the guild manifest (mods +
+ * resource packs, including deps). Shaders are not strict. If anything required
+ * is missing/mismatched, download only those files — then the build is playable.
+ */
+export async function ensureGuildPlayReady(instanceId: string): Promise<void> {
   const build = useBuildStore.getState().builds.find((b) => b.id === instanceId);
   if (!build?.managed || !build.releaseId || !build.location) {
-    throw new Error("Not a guild-managed build");
+    return;
   }
 
-  const manifest = await fetchBuildManifest(build.releaseId);
-  const releaseLike: GuildBuildRelease = {
+  // Fast path: already synced to same release — skip manifest hash check entirely.
+  let releaseLike: GuildBuildRelease = {
     id: build.releaseId,
     buildId: build.buildKey || build.id,
     guildId: build.guildId || "",
@@ -241,11 +360,234 @@ export async function syncManagedBuild(
     excludes: ["saves/**"],
   };
 
+  if (build.guildId && build.releaseId && navigator.onLine) {
+    try {
+      releaseLike = await fetchGuildBuildRelease(build.guildId, build.releaseId);
+    } catch (err) {
+      logger.warn(
+        `Play sync: catalog refresh failed, using cached release (${err instanceof Error ? err.message : String(err)})`,
+      );
+    }
+  }
+
+  // If the local build is already synced to this exact release+version, skip
+  // the expensive disk hash check — just play.
+  if (
+    build.syncStatus === "synced" &&
+    build.releaseId === releaseLike.id &&
+    (!releaseLike.version || build.version === releaseLike.version)
+  ) {
+    return;
+  }
+
+  const manifest = await resolveGuildInstallManifest(releaseLike);
+  const excludes = [
+    ...new Set([
+      ...(manifest.excludes ?? []),
+      ...(releaseLike.excludes ?? []),
+      "saves/**",
+    ]),
+  ];
+  const files = manifestToSyncFiles(manifest);
+
+  const check = await checkGuildManifestSync(
+    build.location,
+    files,
+    excludes,
+    "play",
+  );
+
+  if (check.synced) {
+    useBuildStore.getState().patchBuild(instanceId, {
+      syncStatus: "synced",
+      status: "Ready",
+      releaseId: releaseLike.id,
+      buildKey: releaseLike.buildId,
+      version: releaseLike.version,
+      manifestGeneratedAt: manifest.generatedAt,
+    });
+    return;
+  }
+
+  const need = check.missing.length + check.mismatched.length;
+  if (need === 0 && check.extras.length > 0) {
+    // Only extras differ — don't block launch to remove them. Mark synced and
+    // let a background full-sync prune later.
+    logger.info(
+      `Play sync: ${check.extras.length} extras but no missing files — launching without pruning`,
+    );
+    useBuildStore.getState().patchBuild(instanceId, {
+      syncStatus: "synced",
+      status: "Ready",
+      releaseId: releaseLike.id,
+      buildKey: releaseLike.buildId,
+      version: releaseLike.version,
+      manifestGeneratedAt: manifest.generatedAt,
+    });
+    return;
+  }
+
+  toast.message("Updating build files…", {
+    description: `Downloading ${need} missing or changed file${need === 1 ? "" : "s"}.`,
+  });
+
+  await runSyncPlan(releaseLike, manifest, build.location, instanceId, {
+    quiet: true,
+    syncMode: "play",
+  });
+}
+
+/** Install or repair a guild release into a managed instance, then activate it. */
+export async function installGuildRelease(
+  release: GuildBuildRelease,
+  opts?: { onJob?: (jobId: string) => void },
+): Promise<string> {
+  const instanceId = guildInstanceId(release.guildId, release.buildId);
+
+  // Prefer a fresh catalog row from guilds.cultforge.com (source of truth).
+  let catalog = release;
   try {
-    await runSyncPlan(releaseLike, manifest, build.location, instanceId, quiet);
+    catalog = await fetchGuildBuildRelease(release.guildId, release.id);
+  } catch (err) {
+    logger.warn(
+      `Guild install: using in-memory catalog row (${err instanceof Error ? err.message : String(err)})`,
+    );
+  }
+
+  const manifest = await resolveGuildInstallManifest(catalog);
+
+  const ensured = await ensureBuildInstance(
+    instanceId,
+    catalog.dependencies.loader,
+  );
+  if (!ensured?.path) {
+    throw new Error("Could not create guild instance folder");
+  }
+
+  const build = buildManagedInstance(
+    catalog,
+    instanceId,
+    ensured.path,
+    manifest,
+    "syncing",
+  );
+  useBuildStore.getState().upsertBuild(build);
+  useBuildStore.getState().setActive(instanceId);
+
+  try {
+    await runSyncPlan(catalog, manifest, ensured.path, instanceId, {
+      onJob: opts?.onJob,
+    });
+
+    // Install Forge/Fabric/etc. so Play does not fall back to vanilla MC.
+    try {
+      const { ensureRuntimeVersionId } = await import("./loaderInstall");
+      const ready = useBuildStore.getState().builds.find((b) => b.id === instanceId);
+      if (ready) {
+        const versionId = await ensureRuntimeVersionId(ready);
+        logger.info(`Guild install runtime ready: ${versionId}`);
+      }
+    } catch (loaderErr) {
+      logger.warn(
+        `Guild install: loader ensure deferred (${loaderErr instanceof Error ? loaderErr.message : String(loaderErr)})`,
+      );
+    }
+
+    toast.success(`${catalog.name} is synced`, {
+      description: `Installed ${manifest.files.length} files from the guild catalog.`,
+    });
+  } catch (e) {
+    useBuildStore.getState().patchBuild(instanceId, {
+      syncStatus: "error",
+      status: "Update",
+    });
+    throw e;
+  }
+
+  return instanceId;
+}
+
+/** Re-fetch the release catalog + install plan and reconcile a managed local instance. */
+export async function syncManagedBuild(
+  instanceId: string,
+  options: {
+    quiet?: boolean;
+    force?: boolean;
+    onJob?: (jobId: string) => void;
+  } = {},
+): Promise<void> {
+  const quiet = options.quiet === true;
+  const force = options.force === true;
+  const build = useBuildStore.getState().builds.find((b) => b.id === instanceId);
+  if (!build?.managed || !build.releaseId || !build.location) {
+    throw new Error("Not a guild-managed build");
+  }
+
+  // Quiet background passes must not re-download a healthy install.
+  if (!force && quiet && build.syncStatus === "synced") {
+    return;
+  }
+
+  let releaseLike: GuildBuildRelease = {
+    id: build.releaseId,
+    buildId: build.buildKey || build.id,
+    guildId: build.guildId || "",
+    serverId: "",
+    name: build.name,
+    summary: build.description,
+    version: build.version,
+    publishedAt: build.created,
+    publishedAtIso: build.created,
+    image: build.image || "",
+    dependencies: {
+      minecraft: build.mc,
+      loader: build.loader,
+      java: build.java === "—" ? "" : build.java,
+    },
+    sizes: { downloadBytes: 0, installedBytes: 0 },
+    content: {
+      mods: build.mods,
+      resourcePacks: 0,
+      shaders: 0,
+      configs: 0,
+    },
+    changelog: [],
+    excludes: ["saves/**"],
+  };
+
+  if (build.guildId && build.releaseId) {
+    try {
+      releaseLike = await fetchGuildBuildRelease(build.guildId, build.releaseId);
+    } catch (err) {
+      logger.warn(
+        `Managed sync: catalog refresh failed for ${build.id}: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
+  }
+
+  // Same published release + already synced → skip unless the user forced repair.
+  if (
+    !force &&
+    quiet &&
+    build.syncStatus === "synced" &&
+    build.releaseId === releaseLike.id &&
+    (!build.version || !releaseLike.version || build.version === releaseLike.version)
+  ) {
+    return;
+  }
+
+  const manifest = await resolveGuildInstallManifest(releaseLike);
+
+  try {
+    useBuildStore.getState().patchBuild(instanceId, { syncStatus: "syncing" });
+    await runSyncPlan(releaseLike, manifest, build.location, instanceId, {
+      quiet,
+      force,
+      onJob: options.onJob,
+    });
     if (!quiet) {
       toast.success(`${build.name} repaired`, {
-        description: "Instance matches the guild manifest again.",
+        description: "Instance matches the guild catalog again.",
       });
     }
   } catch (e) {
@@ -275,6 +617,8 @@ export async function syncAllManagedBuilds(online: boolean): Promise<void> {
     .getState()
     .builds.filter((b) => b.managed && b.releaseId);
   for (const build of managed) {
+    // Leave healthy installs alone on boot — only repair drifted/errored/unknown.
+    if (build.syncStatus === "synced") continue;
     try {
       await syncManagedBuild(build.id, { quiet: true });
     } catch (e) {

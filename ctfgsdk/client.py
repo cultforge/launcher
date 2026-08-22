@@ -7,6 +7,7 @@ import httpx
 from typing_extensions import deprecated
 
 from .exceptions import ClientError, RemoteUnavailable
+from .hosts import manifest_url, module_base
 from .schema import (
     AccountDeleteRequest,
     SignupRequest,
@@ -119,6 +120,37 @@ class Client:
         )
         self._ensure_module_command(
             "guilds",
+            "get_guild_build_install_manifest",
+            "/v1/guilds/{guild_id}/builds/{build_id}/manifest",
+            "get",
+        )
+        self._ensure_module_command(
+            "guilds",
+            "refresh_guild_build_install_manifest",
+            "/v1/guilds/{guild_id}/builds/{build_id}/manifest/refresh",
+            "post",
+        )
+        self._ensure_module_command(
+            "guilds",
+            "backfill_install_manifests_for_existing_published_builds",
+            "/v1/guilds/{guild_id}/builds/manifest/backfill",
+            "post",
+        )
+        self._ensure_module_command(
+            "guilds",
+            "upload_or_set_build_icon",
+            "/v1/guilds/{guild_id}/builds/{build_id}/icon",
+            "post",
+        )
+        self._ensure_module_command(
+            "guilds",
+            "upload_or_set_build_cover_image",
+            "/v1/guilds/{guild_id}/builds/{build_id}/cover",
+            "post",
+        )
+        # Legacy launcher aliases (same paths as live operation ids above).
+        self._ensure_module_command(
+            "guilds",
             "upload_guild_build_icon",
             "/v1/guilds/{guild_id}/builds/{build_id}/icon",
             "post",
@@ -129,11 +161,245 @@ class Client:
             "/v1/guilds/{guild_id}/builds/{build_id}/cover",
             "post",
         )
+        # Guild branding media (same body shape as build icon/cover uploads).
+        self._ensure_module_command(
+            "guilds",
+            "upload_guild_icon",
+            "/v1/guilds/{guild_id}/icon",
+            "post",
+        )
+        self._ensure_module_command(
+            "guilds",
+            "upload_guild_banner",
+            "/v1/guilds/{guild_id}/banner",
+            "post",
+        )
+        # Guild server media (same body shape as build icon/cover uploads).
+        self._ensure_module_command(
+            "guilds",
+            "upload_or_set_server_icon",
+            "/v1/guilds/{guild_id}/servers/{server_id}/icon",
+            "post",
+        )
+        self._ensure_module_command(
+            "guilds",
+            "upload_or_set_server_cover_image",
+            "/v1/guilds/{guild_id}/servers/{server_id}/cover",
+            "post",
+        )
         # Manifest has members.kick in docs but no operation id yet.
         self._ensure_module_command(
             "guilds",
             "kick_guild_member",
             "/v1/guilds/{guild_id}/members/{target_user_id}",
+            "delete",
+        )
+        # CultAgent control-plane (api host) + guild-scoped listing.
+        self._ensure_api_command("list_my_cultagent_nodes", "/v1/agents", "get")
+        self._ensure_api_command(
+            "create_a_short-lived_pairing_code_for_cf-agent_claim",
+            "/v1/agents/pairing",
+            "post",
+        )
+        self._ensure_api_command(
+            "start_gh-style_device_login_(cf-agent_login)",
+            "/v1/agents/device/start",
+            "post",
+        )
+        self._ensure_api_command(
+            "poll_device_login_until_approved_(returns_agent_token_once)",
+            "/v1/agents/device/token",
+            "post",
+        )
+        self._ensure_api_command(
+            "approve_a_pending_device_login_(browser_/_launcher)",
+            "/v1/agents/device/approve",
+            "post",
+        )
+        self._ensure_api_command(
+            "get_cultagent_node",
+            "/v1/agents/{node_id}",
+            "get",
+        )
+        self._ensure_api_command(
+            "list_workloads_on_a_node",
+            "/v1/agents/{node_id}/workloads",
+            "get",
+        )
+        self._ensure_api_command(
+            "get_cultagent_node_telemetry",
+            "/v1/agents/{node_id}/telemetry",
+            "get",
+        )
+        self._ensure_api_command(
+            "enqueue_a_command_for_the_agent_to_poll",
+            "/v1/agents/{node_id}/commands",
+            "post",
+        )
+        self._ensure_api_command(
+            "enqueue_command_for_a_node",
+            "/v1/agents/{node_id}/commands",
+            "post",
+        )
+        self._ensure_api_command(
+            "list_commands_for_a_node",
+            "/v1/agents/{node_id}/commands",
+            "get",
+        )
+        self._ensure_api_command(
+            "get_command_for_a_node",
+            "/v1/agents/{node_id}/commands/{command_id}",
+            "get",
+        )
+        self._ensure_api_command(
+            "get_workload_console_snapshot",
+            "/v1/agents/{node_id}/workloads/{workload_id}/console",
+            "get",
+        )
+        self._ensure_api_command(
+            "confirm_a_high-risk_command_(e.g._backup.restore)",
+            "/v1/agents/{node_id}/commands/{command_id}/confirm",
+            "post",
+        )
+        self._ensure_api_command(
+            "attach_a_workload_to_a_node",
+            "/v1/agents/{node_id}/workloads",
+            "post",
+        )
+        self._ensure_api_command(
+            "revoke_agent_credentials",
+            "/v1/agents/{node_id}/revoke",
+            "post",
+        )
+        self._ensure_api_command(
+            "rotate_agent_token_(returns_new_token_once)",
+            "/v1/agents/{node_id}/rotate-token",
+            "post",
+        )
+        self._ensure_module_command(
+            "api",
+            "list_cultagent_nodes_for_a_guild",
+            "/v1/guilds/{guild_id}/agents",
+            "get",
+        )
+        self._ensure_module_command(
+            "api",
+            "attach_an_agent_node_to_a_guild_(guildmaster_/_agent.manage)",
+            "/v1/guilds/{guild_id}/agents/{node_id}/attach",
+            "post",
+        )
+        self._ensure_module_command(
+            "api",
+            "detach_an_agent_node_from_a_guild",
+            "/v1/guilds/{guild_id}/agents/{node_id}/detach",
+            "post",
+        )
+        # Guild JWT reads for agent runtime / presence / events + CLI profiles.
+        self._ensure_module_command(
+            "api",
+            "list_agent_runtime_snapshots_for_a_guild",
+            "/v1/guilds/{guild_id}/agents/runtime",
+            "get",
+        )
+        self._ensure_module_command(
+            "api",
+            "list_live_agent_player_presence_for_a_guild",
+            "/v1/guilds/{guild_id}/agents/players",
+            "get",
+        )
+        self._ensure_module_command(
+            "api",
+            "list_recent_agent_gameplay_events_for_a_guild",
+            "/v1/guilds/{guild_id}/agents/events",
+            "get",
+        )
+        self._ensure_module_command(
+            "api",
+            "get_guild_default_agent_command_profile",
+            "/v1/guilds/{guild_id}/agent-commands",
+            "get",
+        )
+        self._ensure_module_command(
+            "api",
+            "put_guild_default_agent_command_profile",
+            "/v1/guilds/{guild_id}/agent-commands",
+            "put",
+        )
+        self._ensure_api_command(
+            "get_node_override_command_profile",
+            "/v1/agents/{node_id}/commands/profile",
+            "get",
+        )
+        self._ensure_api_command(
+            "put_node_override_command_profile",
+            "/v1/agents/{node_id}/commands/profile",
+            "put",
+        )
+        # Public build catalog.
+        self._ensure_api_command(
+            "search_public_build_catalog",
+            "/v1/builds/discover",
+            "get",
+        )
+        self._ensure_api_command(
+            "get_public_catalog_build_detail",
+            "/v1/builds/{build_id}",
+            "get",
+        )
+        # User builds (personal build configs).
+        self._ensure_api_command("list_my_builds", "/v1/me/builds", "get")
+        self._ensure_api_command("create_user_build", "/v1/me/builds", "post")
+        self._ensure_api_command(
+            "get_my_build", "/v1/me/builds/{build_id}", "get"
+        )
+        self._ensure_api_command(
+            "update_my_build", "/v1/me/builds/{build_id}", "patch"
+        )
+        self._ensure_api_command(
+            "delete_my_build", "/v1/me/builds/{build_id}", "delete"
+        )
+        # Personal servers.
+        self._ensure_api_command(
+            "list_my_personal_servers", "/v1/me/servers", "get"
+        )
+        self._ensure_api_command(
+            "create_personal_server", "/v1/me/servers", "post"
+        )
+        self._ensure_api_command(
+            "get_personal_server", "/v1/me/servers/{server_id}", "get"
+        )
+        self._ensure_api_command(
+            "update_personal_server", "/v1/me/servers/{server_id}", "patch"
+        )
+        self._ensure_api_command(
+            "delete_personal_server", "/v1/me/servers/{server_id}", "delete"
+        )
+        # Agent server bindings.
+        self._ensure_api_command(
+            "list_agent_server_bindings",
+            "/v1/agents/{node_id}/bindings",
+            "get",
+        )
+        self._ensure_module_command(
+            "api",
+            "bind_guild_server_to_agent",
+            "/v1/guilds/{guild_id}/servers/{server_id}/agents/{node_id}/bind",
+            "post",
+        )
+        self._ensure_module_command(
+            "api",
+            "unbind_guild_server_from_agent",
+            "/v1/guilds/{guild_id}/servers/{server_id}/agents/{node_id}/bind",
+            "delete",
+        )
+        self._ensure_api_command(
+            "bind_personal_server_to_agent",
+            "/v1/me/servers/{server_id}/agents/{node_id}/bind",
+            "post",
+        )
+        self._ensure_api_command(
+            "unbind_personal_server_from_agent",
+            "/v1/me/servers/{server_id}/agents/{node_id}/bind",
             "delete",
         )
 
@@ -160,45 +426,12 @@ class Client:
         if module not in self.__skel:
             self.__skel[module] = {}
         mod_skel = self.__skel[module]
-        if command_id in mod_skel and mod_skel[command_id] == path:
-            return
         if module not in self.schema:
             self.schema[module] = {}
         mod_schema = self.schema[module]
-        if path not in mod_schema:
-            parameters = [
-                {
-                    "name": name,
-                    "in": "path",
-                    "required": True,
-                    "schema": {"type": "string"},
-                }
-                for name in re.findall(r"\{([a-zA-Z_][a-zA-Z0-9_]*)\}", path)
-            ]
-            mod_schema[path] = {
-                "uri": path,
-                "methods": {
-                    method: {
-                        "description": None,
-                        "parameters": parameters or None,
-                        "responses": {
-                            "200": {
-                                "description": "Successful Response",
-                                "content": {
-                                    "application/json": {"schema": {}}
-                                },
-                            }
-                        },
-                        "id": command_id,
-                    }
-                },
-            }
-        else:
-            methods = dict(mod_schema[path].get("methods") or {})
-            existing_ids = {
-                str(details.get("id") or "") for details in methods.values()
-            }
-            if method not in methods and command_id not in existing_ids:
+
+        def _ensure_method() -> None:
+            if path not in mod_schema:
                 parameters = [
                     {
                         "name": name,
@@ -208,6 +441,45 @@ class Client:
                     }
                     for name in re.findall(r"\{([a-zA-Z_][a-zA-Z0-9_]*)\}", path)
                 ]
+                mod_schema[path] = {
+                    "uri": path,
+                    "methods": {
+                        method: {
+                            "description": None,
+                            "parameters": parameters or None,
+                            "responses": {
+                                "200": {
+                                    "description": "Successful Response",
+                                    "content": {
+                                        "application/json": {"schema": {}}
+                                    },
+                                }
+                            },
+                            "id": command_id,
+                        }
+                    },
+                }
+                return
+            methods = dict(mod_schema[path].get("methods") or {})
+            existing = methods.get(method) or {}
+            if str(existing.get("id") or "") == command_id:
+                return
+            if method in methods and str(existing.get("id") or ""):
+                # Path already has this HTTP verb under another operation id —
+                # still register our command id against the same path/method.
+                pass
+            parameters = [
+                {
+                    "name": name,
+                    "in": "path",
+                    "required": True,
+                    "schema": {"type": "string"},
+                }
+                for name in re.findall(r"\{([a-zA-Z_][a-zA-Z0-9_]*)\}", path)
+            ]
+            # Prefer attaching under the requested verb; if verb taken by another
+            # id, keep that verb and rely on id-matching in dispatch.
+            if method not in methods or not str(existing.get("id") or ""):
                 methods[method] = {
                     "description": None,
                     "parameters": parameters or None,
@@ -222,7 +494,50 @@ class Client:
                     "id": command_id,
                 }
                 mod_schema[path]["methods"] = methods
+            else:
+                # Duplicate verb: store a synthetic methods key won't work.
+                # Overwrite id only when the existing id is empty/none.
+                if not str(existing.get("id") or "").strip():
+                    methods[method] = {**existing, "id": command_id}
+                    mod_schema[path]["methods"] = methods
+
+        _ensure_method()
         mod_skel[command_id] = path
+
+        # If the path already exposed this verb under a different operation id,
+        # dispatch won't find our id on that method. Add a dedicated alias
+        # method entry keyed by an internal name so id matching still works.
+        endpoint = mod_schema.get(path) or {}
+        methods = dict(endpoint.get("methods") or {})
+        matched = any(
+            str((details or {}).get("id") or "") == command_id
+            for details in methods.values()
+        )
+        if not matched:
+            alias = f"{method}__{command_id}"
+            parameters = [
+                {
+                    "name": name,
+                    "in": "path",
+                    "required": True,
+                    "schema": {"type": "string"},
+                }
+                for name in re.findall(r"\{([a-zA-Z_][a-zA-Z0-9_]*)\}", path)
+            ]
+            methods[alias] = {
+                "description": None,
+                "parameters": parameters or None,
+                "responses": {
+                    "200": {
+                        "description": "Successful Response",
+                        "content": {"application/json": {"schema": {}}},
+                    }
+                },
+                "id": command_id,
+                # Real HTTP verb for _request (alias keys are ignored as verbs).
+                "http_method": method,
+            }
+            mod_schema[path]["methods"] = methods
 
     def _ensure_api_command(
         self, command_id: str, path: str, method: str = "get"
@@ -232,17 +547,18 @@ class Client:
     @classmethod
     async def create(
         cls,
-        base_url: str = "https://api.cultforge.com/manifest.json",
+        base_url: str | None = None,
         http: httpx.AsyncClient | None = None,
     ) -> "Client":
         """Factory method to handle the async download before instantiation"""
         owns_client = http is None
         client = http or httpx.AsyncClient(timeout=httpx.Timeout(10.0))
+        resolved = (base_url or "").strip() or manifest_url()
         try:
-            response = await client.get(base_url)
+            response = await client.get(resolved)
             if response.status_code != 200:
                 raise RemoteUnavailable(
-                    "Cannot connect to `api.cultforge.com` to fetch schema"
+                    f"Cannot connect to `{resolved}` to fetch schema"
                 )
             schema_data = response.json()
             return cls(schema_data, http=http)
@@ -336,11 +652,14 @@ class Client:
         if self.sessionToken and "Authorization" not in merged:
             merged["Authorization"] = f"Bearer {self.sessionToken}"
         # Match OAuth-issued session fingerprint (see generate_session_digest).
+        # Always overwrite — shared AsyncClient defaults to python-httpx/* UA,
+        # which breaks digest checks against the browser-bound session.
         ua = getattr(self, "_session_user_agent", None)
         platform = getattr(self, "_session_platform", None)
-        if ua and "User-Agent" not in merged and "user-agent" not in merged:
+        if ua:
+            merged.pop("user-agent", None)
             merged["User-Agent"] = ua
-        if platform and "sec-ch-ua-platform" not in merged:
+        if platform:
             merged["sec-ch-ua-platform"] = platform
         return merged
 
@@ -356,7 +675,7 @@ class Client:
         )
         if self._http is not None:
             return await self._http.request(method, url, **kwargs)
-        async with httpx.AsyncClient(timeout=httpx.Timeout(10.0)) as client:
+        async with httpx.AsyncClient(timeout=httpx.Timeout(30.0, connect=10.0)) as client:
             return await client.request(method, url, **kwargs)
 
     async def create_account(self, data: SignupRequest) -> Dict:
@@ -384,7 +703,7 @@ class Client:
             headers = {"Authorization": f"Bearer {token}"}
             response = await self._request(
                 "POST",
-                "https://auth.cultforge.com/v1/create_account",
+                f"{module_base('auth')}/v1/create_account",
                 json=dataX,
                 headers=headers,
             )
@@ -456,7 +775,7 @@ class Client:
             ).model_dump()
             response = await self._request(
                 "POST",
-                "https://auth.cultforge.com/v1/profile/update-handle",
+                f"{module_base('auth')}/v1/profile/update-handle",
                 json=body,
             )
             try:
@@ -521,7 +840,7 @@ class Client:
                 body = {"avatar_url": None}
             response = await self._request(
                 "POST",
-                "https://api.cultforge.com/v1/profile/avatar",
+                f"{module_base('api')}/v1/profile/avatar",
                 json=body,
             )
             try:
@@ -569,7 +888,7 @@ class Client:
         try:
             response = await self._request(
                 "POST",
-                "https://auth.cultforge.com/v1/logout",
+                f"{module_base('auth')}/v1/logout",
             )
             self.clear_session_token()
             self.rToken = None
@@ -613,7 +932,7 @@ class Client:
             ).model_dump(exclude_none=True)
             response = await self._request(
                 "DELETE",
-                "https://auth.cultforge.com/v1/account",
+                f"{module_base('auth')}/v1/account",
                 json=body,
             )
             try:
@@ -685,6 +1004,11 @@ class Client:
             method_type = list(endpoint_meta["methods"].keys())[0]
             method_meta = endpoint_meta["methods"][method_type]
 
+        # Injected aliases may use keys like "post__upload_guild_icon".
+        http_verb = str(
+            (method_meta or {}).get("http_method") or method_type or "get"
+        ).split("__", 1)[0]
+
         schema_params = method_meta.get("parameters") or []
         path_param_names = {
             p["name"] for p in schema_params if p.get("in") == "path"
@@ -721,14 +1045,14 @@ class Client:
                 f"Missing path parameter(s) for {module}/{command}: {', '.join(missing)}"
             )
 
-        url = f"https://{module}.cultforge.com{resolved_path}"
+        url = f"{module_base(module)}{resolved_path}"
 
         response = await self._request(
-            method_type.upper(),
+            http_verb.upper(),
             url,
             params=params if params else None,
             json=json_data
-            if json_data and method_type.lower() in ("post", "put", "patch")
+            if json_data and http_verb.lower() in ("post", "put", "patch")
             else None,
         )
         if response.is_redirect:

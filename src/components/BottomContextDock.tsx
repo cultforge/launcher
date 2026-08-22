@@ -17,6 +17,7 @@ import { LobbyMusicControls } from "./LobbyMusicControls";
 import { toast } from "sonner";
 import { useEffect } from "react";
 import { cn } from "../lib/cn";
+import { isHomeBuildsView } from "../lib/homeNav";
 
 const spring = { type: "spring" as const, stiffness: 420, damping: 30, mass: 0.85 };
 
@@ -25,8 +26,10 @@ function BottomContextDock() {
   const toggleCollapsed = useContextDockStore((s) => s.toggleCollapsed);
 
   const primaryTab = useNavigationStore((s) => s.primaryTab);
+  const sideItem = useNavigationStore((s) => s.sideItem);
   const setPrimaryTab = useNavigationStore((s) => s.setPrimaryTab);
   const setSideItem = useNavigationStore((s) => s.setSideItem);
+  const onHomeBuilds = isHomeBuildsView(primaryTab, sideItem);
 
   const activeBuild = useBuildStore((s) => s.active());
   const pendingUpdates = useUpdatesStore(
@@ -208,7 +211,7 @@ function BottomContextDock() {
               ) : (
                 <>
                   <div className="flex-1 min-w-0 flex items-center gap-2.5">
-                    {primaryTab === "Builds" && (
+                    {onHomeBuilds && (
                       <>
                         <Icon
                           icon={AppIcons.Builds}
@@ -228,7 +231,7 @@ function BottomContextDock() {
                         </span>
                       </>
                     )}
-                    {primaryTab === "Home" && (
+                    {primaryTab === "Home" && !onHomeBuilds && (
                       <>
                         <Icon
                           icon={AppIcons.Newspaper}
@@ -249,7 +252,7 @@ function BottomContextDock() {
                         </button>
                       </>
                     )}
-                    {primaryTab !== "Builds" && primaryTab !== "Home" && (
+                    {!onHomeBuilds && primaryTab !== "Home" && (
                       <>
                         <Icon
                           icon={AppIcons.Activity}
@@ -263,7 +266,7 @@ function BottomContextDock() {
                     )}
                   </div>
 
-                  {primaryTab === "Builds" && (
+                  {onHomeBuilds && (
                     <button
                       type="button"
                       disabled={!launch.ok || starting}
@@ -279,7 +282,7 @@ function BottomContextDock() {
                           : "PLAY"}
                     </button>
                   )}
-                  {primaryTab === "Home" && (
+                  {primaryTab === "Home" && !onHomeBuilds && (
                     <button
                       type="button"
                       className="px-3.5 py-2 rounded-lg text-[11px] font-semibold uppercase tracking-wide text-text-secondary hover:text-text-primary border border-white/10 hover:bg-white/4 cursor-pointer shrink-0"

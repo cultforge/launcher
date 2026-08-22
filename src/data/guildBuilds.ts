@@ -27,6 +27,19 @@ function findManagedForRelease(
   );
 }
 
+function sameRelease(local: BuildInstance, release: GuildBuildRelease): boolean {
+  if (local.releaseId && local.releaseId === release.id) return true;
+  if (local.buildKey && local.buildKey === release.buildId) return true;
+  return false;
+}
+
+function sameVersion(local: BuildInstance, release: GuildBuildRelease): boolean {
+  const a = (local.version || "").trim();
+  const b = (release.version || "").trim();
+  if (!a || !b) return true;
+  return a === b;
+}
+
 export function guildBuildInstallState(
   release: GuildBuildRelease,
   builds: BuildInstance[],
@@ -34,12 +47,22 @@ export function guildBuildInstallState(
   const local = findManagedForRelease(release, builds);
   if (!local) return { state: "not-installed", localVersion: null };
 
-  if (
-    local.releaseId === release.id &&
-    local.syncStatus === "synced" &&
-    local.version === release.version
-  ) {
-    return { state: "installed", localVersion: local.version };
+  // Active native sync — never call this an "update".
+  if (local.syncStatus === "syncing") {
+    return { state: "installing", localVersion: local.version || null };
+  }
+
+  if (sameRelease(local, release) && local.syncStatus === "synced") {
+    if (sameVersion(local, release)) {
+      return { state: "installed", localVersion: local.version };
+    }
+    // Same build id, newer catalog version → real update.
+    return { state: "update-available", localVersion: local.version };
+  }
+
+  // Partial / failed / drifted instance for this release.
+  if (sameRelease(local, release)) {
+    return { state: "update-available", localVersion: local.version };
   }
 
   return { state: "update-available", localVersion: local.version };

@@ -15,7 +15,7 @@ import traceback
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from typing import Any
-from urllib.parse import quote
+from urllib.parse import quote, unquote, urljoin, urlparse
 
 import httpx
 import psutil
@@ -27,6 +27,7 @@ from fastapi.responses import HTMLResponse, JSONResponse, Response, StreamingRes
 
 from ctfgsdk import client as cliX
 from ctfgsdk import keyring_store
+from ctfgsdk.hosts import describe_bases, http_to_ws, module_base
 from ctfgsdk.schema import (
     AccountDeleteRequest,
     SignupRequest,
@@ -34,7 +35,7 @@ from ctfgsdk.schema import (
     UserHandleUpdateRequest,
 )
 
-APP_VERSION = "2.4.0"
+APP_VERSION = "2.4.1"
 ws_connections: set[WebSocket] = set()
 
 LOG_LEVELS = {"DEBUG", "INFO", "SUCCESS", "WARNING", "ERROR", "CRITICAL", "EXCEPTION"}
@@ -58,12 +59,13 @@ _admin_catalog_cache: list[dict[str, Any]] | None = None
 _admin_catalog_fetched_at: float = 0.0
 
 # Presence / global chat bridge: React never opens the remote socket.
-PRESENCE_WS_URL = "wss://api.cultforge.com/v1/ws"
-# Guild chat bridge: forward guild.chat.* / guild.channel.* frames.
-GUILDS_WS_URL = "wss://guilds.cultforge.com/v1/ws"
-API_BASE = "https://api.cultforge.com"
-GUILDS_BASE = "https://guilds.cultforge.com"
-AUTH_BASE = "https://auth.cultforge.com"
+# Bases follow CULTFORGE_USE_LOCAL_API (opt-in) or live production hosts.
+API_BASE = module_base("api")
+AUTH_BASE = module_base("auth")
+GUILDS_BASE = module_base("guilds")
+INVITE_BASE = module_base("invite")
+PRESENCE_WS_URL = http_to_ws(API_BASE)
+GUILDS_WS_URL = http_to_ws(GUILDS_BASE)
 LOOPBACK_HEADER = "X-CultForge-Loopback-Secret"
 LOOPBACK_QUERY = "cf_loopback"
 LOOPBACK_EXEMPT_PREFIXES = ("/auth/callback",)
@@ -72,6 +74,7 @@ ADMIN_CATALOG_TTL = 300.0
 # Remote /v1/ws may also push:
 #   {"type": "chloe.action.pending", "payload": {action_id, tool, args, risk, summary, ...}}
 #   {"type": "chloe.action.execute", "payload": {action_id, tool, args, summary, ...}}
+#   {"type": "agent.command.updated", "payload": {id, node_id, status, result, ...}}
 
 # Local guild media bytes (icon/banner/covers) — avoid re-hitting Cloudflare.
 _guild_media_local_cache: dict[str, tuple[bytes, str]] = {}
@@ -945,10 +948,13 @@ def set_session_key(
             _skey_user_agent = meta.get("user_agent")
             _skey_platform = meta.get("platform")
         if sdk is not None:
+            # Never wipe an in-memory OAuth fingerprint when meta/UA is missing.
             sdk.setup_session_token(
                 token,
                 user_agent=_skey_user_agent,
                 platform=_skey_platform,
+                retain_fingerprint=_skey_user_agent is None
+                and _skey_platform is None,
             )
     else:
         clear_session_key(sdk=sdk)
@@ -1202,12 +1208,24 @@ def status_for_path(path: str, method: str = "GET") -> str | None:
 
 async def emit_log(level: str, message: str, *, stack: str | None = None) -> None:
     """Print a short status line to the sidecar log and broadcast to connected UIs."""
-    safe_message = _redact_log_text(message)
-    print(f"[{level.upper()}] {safe_message}", flush=True)
-    if stack and level.upper() in {"EXCEPTION", "ERROR"}:
-        # Keep failures debuggable without dumping routine payloads.
-        print(_redact_log_text(stack.splitlines()[-1] if stack else ""), flush=True)
-    await broadcast_ws(_log_payload(level, safe_message, None))
+    try:
+        safe_message = _redact_log_text(message)
+        line = f"[{level.upper()}] {safe_message}"
+        encoding = getattr(sys.stdout, "encoding", None) or "utf-8"
+        try:
+            print(line, flush=True)
+        except UnicodeEncodeError:
+            print(line.encode(encoding, errors="replace").decode(encoding), flush=True)
+        if stack and level.upper() in {"EXCEPTION", "ERROR"}:
+            tail = _redact_log_text(stack.splitlines()[-1] if stack else "")
+            try:
+                print(tail, flush=True)
+            except UnicodeEncodeError:
+                print(tail.encode(encoding, errors="replace").decode(encoding), flush=True)
+        await broadcast_ws(_log_payload(level, safe_message, None))
+    except Exception:
+        # Never let console encoding (Windows charmap) fail a request.
+        return
 
 
 class WsLogHandler(logging.Handler):
@@ -1438,7 +1456,14 @@ async def lifespan(app: FastAPI):
     global _presence_task, _presence_wake, _guilds_ws_task, _guilds_ws_wake
     install_ws_logging()
     await emit_log("INFO", f"CultForge client v{APP_VERSION} starting")
-    app.state.http = httpx.AsyncClient(timeout=httpx.Timeout(10.0))
+    app.state.http = httpx.AsyncClient(
+        timeout=httpx.Timeout(30.0, connect=10.0),
+        limits=httpx.Limits(
+            max_keepalive_connections=20,
+            max_connections=40,
+            keepalive_expiry=30.0,
+        ),
+    )
     app.state.sdk = None
     app.state.ready_remote = False
     app.state.remote_error = None
@@ -1446,7 +1471,24 @@ async def lifespan(app: FastAPI):
     _guilds_ws_wake = asyncio.Event()
     try:
         await emit_log("INFO", "Loading SDK…")
+        await emit_log("INFO", f"Remote bases: {describe_bases()}")
         app.state.sdk = await cliX.Client.create(http=app.state.http)
+        # Guarantee branding upload ops even on older remote manifests.
+        try:
+            app.state.sdk._ensure_module_command(
+                "guilds",
+                "upload_guild_icon",
+                "/v1/guilds/{guild_id}/icon",
+                "post",
+            )
+            app.state.sdk._ensure_module_command(
+                "guilds",
+                "upload_guild_banner",
+                "/v1/guilds/{guild_id}/banner",
+                "post",
+            )
+        except Exception:
+            pass
         app.state.ready_remote = True
         await emit_log("SUCCESS", "SDK ready")
         load_keys_from_keyring(app.state.sdk)
@@ -1817,6 +1859,152 @@ async def discord_widget(guild_id: str, request: Request):
         )
 
 
+# Allowlisted guild media paths only — never an open /v1/guilds/* proxy.
+_GUILD_MEDIA_PATH_RE = re.compile(
+    r"^"
+    r"[^/]+/(?:icon|banner)"
+    r"|[^/]+/news/[^/]+/cover"
+    r"|[^/]+/events/[^/]+/cover"
+    r"|[^/]+/builds/[^/]+/(?:icon|cover)"
+    r"|[^/]+/servers/[^/]+/(?:icon|cover)"
+    r"|[^/]+/media/[^/]+"
+    r"$",
+    re.IGNORECASE,
+)
+
+_ALLOWED_UPSTREAM_HOSTS = frozenset(
+    {
+        "api.cultforge.com",
+        "auth.cultforge.com",
+        "guilds.cultforge.com",
+        "invite.cultforge.com",
+        "www.cultforge.com",
+        "status.cultforge.com",
+        "discord.com",
+        "cdn.discordapp.com",
+        "media.discordapp.net",
+    }
+)
+
+
+def _upstream_host_allowed(url: str) -> bool:
+    try:
+        host = (urlparse(url).hostname or "").lower()
+    except Exception:
+        return False
+    if not host:
+        return False
+    if host in _ALLOWED_UPSTREAM_HOSTS:
+        return True
+    if host in ("127.0.0.1", "localhost") and "127.0.0.1" in API_BASE:
+        return True
+    return host.endswith(".cultforge.com")
+
+
+async def _get_bytes_allowlisted(
+    http: httpx.AsyncClient,
+    url: str,
+    *,
+    headers: dict[str, str] | None = None,
+    max_redirects: int = 3,
+    allow_avatar_cdn_redirects: bool = False,
+) -> tuple[httpx.Response | None, int]:
+    """GET bytes without following redirects off the CultForge allowlist.
+
+    Avatar endpoints may 302 to Google/Discord CDNs — set
+    ``allow_avatar_cdn_redirects`` for those fetches only.
+    """
+    current = url
+    hdrs = headers or {}
+
+    def _host_ok(target: str) -> bool:
+        if _upstream_host_allowed(target):
+            return True
+        return allow_avatar_cdn_redirects and _is_oauth_provider_avatar_host(target)
+
+    for _ in range(max_redirects + 1):
+        if not _host_ok(current):
+            return None, 502
+        res = await http.get(current, headers=hdrs, follow_redirects=False)
+        if res.status_code in (301, 302, 303, 307, 308):
+            loc = res.headers.get("location")
+            if not loc:
+                return None, res.status_code
+            nxt = urljoin(current, loc)
+            if not _host_ok(nxt):
+                await emit_log(
+                    "WARNING",
+                    f"Blocked off-site upstream redirect: {nxt[:120]}",
+                )
+                return None, 502
+            current = nxt
+            continue
+        return res, res.status_code
+    return None, 502
+
+
+_BROWSER_UA = (
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+    "(KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36 CultForge-Launcher/2.4"
+)
+
+
+def _avatar_fetch_headers() -> dict[str, str]:
+    """Browser-like headers so Cloudflare doesn't 1010 avatar GETs."""
+    headers: dict[str, str] = {
+        "User-Agent": _skey_user_agent or _BROWSER_UA,
+        "Accept": "image/avif,image/webp,image/apng,image/*,*/*;q=0.8",
+    }
+    if _skey_platform:
+        headers["sec-ch-ua-platform"] = _skey_platform
+    return headers
+
+
+def _decode_oauth_avatar_url(raw: str | None) -> str:
+    """Decode callback ``avatar_url`` (may be percent-encoded once or twice)."""
+    text = str(raw or "").strip()
+    if not text:
+        return ""
+    for _ in range(2):
+        if "%" not in text:
+            break
+        decoded = unquote(text)
+        if decoded == text:
+            break
+        text = decoded.strip()
+    return text
+
+
+_PROFILE_AVATAR_RE = re.compile(
+    r"^https?://(?:www\.)?api\.cultforge\.com/v1/profile/(.+)/avatar(?:\?.*)?$",
+    re.IGNORECASE,
+)
+
+
+def _user_id_from_avatar_url(url: str | None) -> str:
+    """Extract ``cf_…`` (or slash-id) from a CultForge profile avatar URL."""
+    text = _decode_oauth_avatar_url(url)
+    if not text:
+        return ""
+    match = _PROFILE_AVATAR_RE.match(text)
+    if not match:
+        return ""
+    uid = match.group(1).strip().strip("/")
+    try:
+        uid = unquote(uid)
+    except Exception:
+        pass
+    if uid.lower().endswith("/avatar"):
+        uid = uid[: -len("/avatar")].rstrip("/")
+    return uid
+
+
+def _sidecar_avatar_src(request: Request, user_id: str, *, bust: str = "oauth") -> str:
+    base = str(request.base_url).rstrip("/")
+    # Keep path-style ids intact; only encode unsafe chars.
+    return f"{base}/media/avatar/{quote(user_id, safe='/_-')}?cb={quote(bust, safe='')}"
+
+
 @app.get("/media/avatar/{user_id:path}")
 async def proxy_user_avatar(user_id: str, request: Request) -> Response:
     """Proxy public avatar bytes through the sidecar.
@@ -1828,9 +2016,12 @@ async def proxy_user_avatar(user_id: str, request: Request) -> Response:
     CultForge user_ids may contain '/' (e.g. cult__xxxx/1234). Remote must use
     /v1/profile/{user_id:path}/avatar with the slash left intact — percent-encoding
     %2F alone does not fix an unfixed {user_id} route.
+
+    OAuth callback passes ``avatar_url=https://api.cultforge.com/v1/profile/{id}/avatar``
+    (URL-encoded in the query). Always resolve display via this proxy.
     """
-    uid = user_id.strip().removesuffix("/avatar").strip("/")
-    if not uid:
+    uid = unquote(user_id.strip()).removesuffix("/avatar").strip("/")
+    if not uid or ".." in uid or len(uid) > 200:
         return JSONResponse(
             status_code=400, content={"error": "missing_user_id"}
         )
@@ -1850,14 +2041,10 @@ async def proxy_user_avatar(user_id: str, request: Request) -> Response:
 
     # Prefer slash path (matches {user_id:path}); fall back to %2F segment.
     remote_candidates = [
-        f"https://api.cultforge.com/v1/profile/{uid}/avatar",
-        f"https://api.cultforge.com/v1/profile/{quote(uid, safe='')}/avatar",
+        f"{API_BASE}/v1/profile/{uid}/avatar",
+        f"{API_BASE}/v1/profile/{quote(uid, safe='')}/avatar",
     ]
-    headers: dict[str, str] = {}
-    if _skey_user_agent:
-        headers["User-Agent"] = _skey_user_agent
-    if _skey_platform:
-        headers["sec-ch-ua-platform"] = _skey_platform
+    headers = _avatar_fetch_headers()
     http: httpx.AsyncClient | None = getattr(request.app.state, "http", None)
     if http is None:
         return JSONResponse(
@@ -1866,10 +2053,16 @@ async def proxy_user_avatar(user_id: str, request: Request) -> Response:
     last_status = 404
     try:
         for remote in remote_candidates:
-            res = await http.get(remote, headers=headers, follow_redirects=True)
-            last_status = res.status_code
-            if res.status_code < 400 and res.content:
+            res, last_status = await _get_bytes_allowlisted(
+                http,
+                remote,
+                headers=headers,
+                allow_avatar_cdn_redirects=True,
+            )
+            if res is not None and res.status_code < 400 and res.content:
                 ctype = res.headers.get("content-type") or "application/octet-stream"
+                if not ctype.startswith("image/") and "octet-stream" not in ctype:
+                    continue
                 _cache_avatar_bytes(uid, res.content, ctype)
                 return Response(
                     content=res.content,
@@ -1897,13 +2090,13 @@ async def proxy_user_avatar(user_id: str, request: Request) -> Response:
 
 @app.get("/media/guilds/{media_path:path}")
 async def proxy_guilds_host_media(media_path: str, request: Request) -> Response:
-    """Proxy any /v1/guilds/... asset through the sidecar (icon, banner, covers, media).
+    """Proxy allowlisted guild media through the sidecar (icon/banner/covers).
 
     Bytes are cached on disk under CultForge/guild-media-cache so navigation
     remounts do not re-hit guilds.cultforge.com every time.
     """
     path = media_path.strip().strip("/")
-    if not path or ".." in path.split("/"):
+    if not path or ".." in path.split("/") or not _GUILD_MEDIA_PATH_RE.match(path):
         return JSONResponse(
             status_code=400, content={"error": "invalid_guild_media_path"}
         )
@@ -1928,7 +2121,7 @@ async def proxy_guilds_host_media(media_path: str, request: Request) -> Response
                 },
             )
 
-    remote = f"https://guilds.cultforge.com/v1/guilds/{path}"
+    remote = f"{GUILDS_BASE}/v1/guilds/{path}"
     headers: dict[str, str] = {}
     if _skey_user_agent:
         headers["User-Agent"] = _skey_user_agent
@@ -1940,8 +2133,8 @@ async def proxy_guilds_host_media(media_path: str, request: Request) -> Response
             status_code=503, content={"error": "http_unavailable"}
         )
     try:
-        res = await http.get(remote, headers=headers, follow_redirects=True)
-        if res.status_code < 400 and res.content:
+        res, status = await _get_bytes_allowlisted(http, remote, headers=headers)
+        if res is not None and status < 400 and res.content:
             ctype = res.headers.get("content-type") or "application/octet-stream"
             _cache_guild_media_bytes(path, res.content, ctype)
             return Response(
@@ -1967,7 +2160,7 @@ async def proxy_guilds_host_media(media_path: str, request: Request) -> Response
                 },
             )
         return JSONResponse(
-            status_code=res.status_code if res.status_code >= 400 else 404,
+            status_code=status if status >= 400 else 404,
             content={"error": "guild_media_not_found"},
         )
     except Exception as e:
@@ -2048,6 +2241,134 @@ _DEFAULT_OAUTH_AVATAR = (
     "https://www.gravatar.com/avatar/00000000000000000000000000000000?d=mp&f=y"
 )
 
+# Provider CDNs used only to seed the local avatar cache after OAuth.
+_OAUTH_AVATAR_HOST_SUFFIXES = (
+    "googleusercontent.com",
+    "ggpht.com",
+    "google.com",
+    "discordapp.com",
+    "discord.com",
+    "cdn.discordapp.com",
+    "media.discordapp.net",
+    "githubusercontent.com",
+    "gravatar.com",
+)
+
+
+def _is_http_url(value: str | None) -> bool:
+    text = (value or "").strip()
+    return text.startswith("http://") or text.startswith("https://")
+
+
+def _is_cultforge_hosted_avatar(url: str | None) -> bool:
+    text = (url or "").strip().lower()
+    if not text:
+        return False
+    return "api.cultforge.com" in text and "/v1/profile/" in text and "/avatar" in text
+
+
+def _is_oauth_provider_avatar_host(url: str) -> bool:
+    try:
+        host = (urlparse(url).hostname or "").lower()
+    except Exception:
+        return False
+    if not host:
+        return False
+    for suffix in _OAUTH_AVATAR_HOST_SUFFIXES:
+        if host == suffix or host.endswith("." + suffix):
+            return True
+    return False
+
+
+def _prefer_display_avatar(
+    cultforge_avatar: str | None,
+    oauth_avatar: str | None,
+) -> str:
+    """Pick the CultForge profile avatar URL from OAuth callback / profile.
+
+    OAuth callback ``avatar_url`` is the hosted profile avatar, e.g.
+    ``https://api.cultforge.com/v1/profile/cf_…/avatar`` (URL-encoded in the
+    query string). Prefer that over empty profile fields.
+    """
+    oauth = _decode_oauth_avatar_url(oauth_avatar)
+    cult = _decode_oauth_avatar_url(cultforge_avatar)
+    if _is_http_url(oauth):
+        return oauth
+    if _is_http_url(cult):
+        return cult
+    return cult or oauth
+
+
+async def _seed_local_avatar_from_url(
+    http: httpx.AsyncClient,
+    user_id: str,
+    url: str | None,
+) -> bool:
+    """Download CultForge profile avatar bytes into the sidecar cache."""
+    uid = (user_id or "").strip()
+    src = _decode_oauth_avatar_url(url)
+    if not uid or not _is_http_url(src):
+        return False
+    if _load_cached_avatar(uid):
+        return True
+
+    headers = _avatar_fetch_headers()
+    try:
+        res, status = await _get_bytes_allowlisted(
+            http,
+            src,
+            headers=headers,
+            allow_avatar_cdn_redirects=True,
+        )
+        if res is None or status >= 400 or not res.content:
+            # Fall back to the canonical profile avatar path.
+            remote = f"{API_BASE}/v1/profile/{uid}/avatar"
+            res, status = await _get_bytes_allowlisted(
+                http,
+                remote,
+                headers=headers,
+                allow_avatar_cdn_redirects=True,
+            )
+        if res is None or status >= 400 or not res.content:
+            return False
+        ctype = res.headers.get("content-type") or "application/octet-stream"
+        if not ctype.startswith("image/") and "octet-stream" not in ctype:
+            return False
+        _cache_avatar_bytes(uid, res.content, ctype)
+        await emit_log(
+            "INFO",
+            f"Seeded avatar cache for {uid!r} bytes={len(res.content)}",
+        )
+        return True
+    except Exception as exc:
+        await emit_log(
+            "WARNING",
+            f"Avatar seed failed for {uid!r}: {exc}",
+        )
+    return False
+
+
+def _callback_avatar_src(
+    request: Request,
+    *,
+    user_id: str,
+    cultforge_avatar: str,
+    oauth_avatar: str | None,
+) -> str:
+    """Avatar URL for the browser callback page.
+
+    Never point <img> at api.cultforge.com directly (Cloudflare 1010). Always
+    use the sidecar ``/media/avatar/{user_id}`` proxy when we know the id —
+    including when OAuth ``avatar_url`` is the hosted profile avatar URL.
+    """
+    preferred = _prefer_display_avatar(cultforge_avatar, oauth_avatar)
+    uid = (user_id or "").strip() or _user_id_from_avatar_url(preferred)
+    if uid:
+        return _sidecar_avatar_src(request, uid, bust="oauth")
+    if preferred and not _is_cultforge_hosted_avatar(preferred):
+        return preferred
+    return _DEFAULT_OAUTH_AVATAR
+
 
 def _as_dict(value: Any) -> dict[str, Any] | None:
     return value if isinstance(value, dict) else None
@@ -2125,6 +2446,7 @@ async def _fetch_cultforge_identity(
         "avatar",
         "picture",
         "image_url",
+        "google_avatar_url",
     )
     email = _pick_str(profile, "email")
     out: dict[str, str] = {}
@@ -2141,24 +2463,6 @@ async def _fetch_cultforge_identity(
     return out
 
 
-def _callback_avatar_src(
-    request: Request,
-    *,
-    user_id: str,
-    cultforge_avatar: str,
-    oauth_avatar: str | None,
-) -> str:
-    base = str(request.base_url).rstrip("/")
-    if user_id:
-        # Sidecar proxy prefers local cache, then remote CultForge avatar.
-        return f"{base}/media/avatar/{quote(user_id, safe='')}?cb=oauth"
-    if cultforge_avatar:
-        return cultforge_avatar
-    if oauth_avatar and oauth_avatar.strip():
-        return oauth_avatar.strip()
-    return _DEFAULT_OAUTH_AVATAR
-
-
 def _render_auth_callback_html(
     *,
     ok: bool,
@@ -2166,11 +2470,13 @@ def _render_auth_callback_html(
     username: str,
     handle_name: str,
     avatar_src: str,
+    avatar_fallback: str,
     token: str,
     message: str,
 ) -> str:
     provider_title = html.escape((provider or "oauth").capitalize())
     safe_avatar = html.escape(avatar_src)
+    safe_fallback = html.escape(avatar_fallback or _DEFAULT_OAUTH_AVATAR)
     safe_username = html.escape(username or "Forger")
     safe_handle = html.escape(f"@{handle_name}") if handle_name else ""
     token_js = json.dumps(token or "")
@@ -2187,6 +2493,7 @@ def _render_auth_callback_html(
     )
     badge_label = "Connected" if ok else "Failed"
     state_class = "ok" if ok else "bad"
+    initial = html.escape((username or "C")[:1].upper())
 
     return f"""<!DOCTYPE html>
 <html lang="en">
@@ -2241,65 +2548,53 @@ def _render_auth_callback_html(
       margin-bottom: 18px;
     }}
     .mark {{
-      width: 28px;
-      height: 28px;
-      border-radius: 9px;
-      background: linear-gradient(135deg, #0f8a5c, var(--mint));
-      box-shadow: 0 0 24px var(--mint-glow);
-      position: relative;
-    }}
-    .mark::after {{
-      content: "";
-      position: absolute;
-      inset: 7px;
-      border-radius: 4px;
-      border: 1.5px solid rgba(0,0,0,0.35);
-      border-top-color: transparent;
-      border-left-color: transparent;
-      transform: rotate(45deg);
+      width: 22px;
+      height: 22px;
+      border-radius: 7px;
+      background:
+        radial-gradient(circle at 30% 30%, #6dffc0, transparent 45%),
+        linear-gradient(135deg, #0d3d2c, #1ee396);
+      box-shadow: 0 0 0 1px rgba(30, 227, 150, 0.35);
     }}
     .brand-name {{
       font-family: Sora, Inter, sans-serif;
       font-weight: 700;
-      letter-spacing: 0.02em;
-      font-size: 15px;
+      letter-spacing: 0.04em;
+      font-size: 13px;
+      text-transform: uppercase;
+      color: var(--secondary);
     }}
     .card {{
-      position: relative;
-      overflow: hidden;
+      background: linear-gradient(180deg, var(--elevated), var(--surface));
       border: 1px solid var(--border);
-      border-radius: 18px;
-      background: linear-gradient(180deg, rgba(255,255,255,0.03), transparent 40%), var(--surface);
-      box-shadow: 0 24px 80px rgba(0,0,0,0.55);
-      padding: 34px 28px 28px;
+      border-radius: 22px;
+      padding: 28px 24px 22px;
       text-align: center;
-    }}
-    .card::before {{
-      content: "";
-      position: absolute;
-      inset: 0 0 auto 0;
-      height: 1px;
-      background: linear-gradient(90deg, transparent, rgba(30,227,150,0.55), transparent);
-      opacity: 0.9;
+      box-shadow:
+        0 24px 60px rgba(0,0,0,0.45),
+        inset 0 1px 0 rgba(255,255,255,0.04);
     }}
     .avatar {{
-      width: 84px;
-      height: 84px;
-      margin: 0 auto 18px;
+      width: 92px;
+      height: 92px;
+      margin: 0 auto 16px;
       border-radius: 999px;
-      padding: 2px;
-      background: linear-gradient(145deg, var(--mint), rgba(30,227,150,0.15) 55%, rgba(255,255,255,0.12));
+      padding: 3px;
+      background: linear-gradient(145deg, var(--mint), rgba(30,227,150,0.15));
+      box-shadow: 0 0 24px var(--mint-glow);
     }}
     .card.bad .avatar {{
-      background: linear-gradient(145deg, var(--error), rgba(235,93,98,0.2) 55%, rgba(255,255,255,0.1));
+      background: linear-gradient(145deg, var(--error), rgba(235,93,98,0.2));
+      box-shadow: 0 0 24px var(--error-soft);
     }}
     .avatar-inner {{
       width: 100%;
       height: 100%;
       border-radius: inherit;
       overflow: hidden;
-      background: var(--elevated);
-      border: 1px solid rgba(0,0,0,0.35);
+      background: #050505;
+      display: grid;
+      place-items: center;
     }}
     .avatar-inner img {{
       width: 100%;
@@ -2307,68 +2602,71 @@ def _render_auth_callback_html(
       object-fit: cover;
       display: block;
     }}
+    .avatar-inner .initial {{
+      font-family: Sora, Inter, sans-serif;
+      font-size: 34px;
+      font-weight: 700;
+      color: var(--mint);
+      line-height: 1;
+    }}
+    .card.bad .avatar-inner .initial {{ color: var(--error); }}
     h1 {{
       font-family: Sora, Inter, sans-serif;
       font-size: 22px;
-      font-weight: 600;
+      font-weight: 700;
       letter-spacing: -0.02em;
-      line-height: 1.25;
       margin-bottom: 6px;
     }}
     .handle {{
       color: var(--mint);
       font-size: 13px;
       font-weight: 600;
-      margin-bottom: 12px;
+      margin-bottom: 10px;
     }}
     .sub {{
       color: var(--secondary);
-      font-size: 13.5px;
-      line-height: 1.55;
-      margin: 0 auto 22px;
+      font-size: 13px;
+      line-height: 1.45;
+      margin: 0 auto 16px;
       max-width: 32ch;
     }}
     .meta {{
       display: flex;
-      flex-wrap: wrap;
       gap: 8px;
       justify-content: center;
-      align-items: center;
+      flex-wrap: wrap;
+      margin-bottom: 14px;
     }}
     .chip {{
       display: inline-flex;
       align-items: center;
       gap: 6px;
       border: 1px solid var(--border);
+      background: rgba(255,255,255,0.03);
+      color: var(--secondary);
       border-radius: 999px;
-      padding: 5px 10px;
+      padding: 6px 10px;
       font-size: 11px;
-      color: var(--muted);
-      background: rgba(255,255,255,0.02);
+      font-weight: 600;
+    }}
+    .chip.status {{
+      background: var(--mint-soft);
+      border-color: rgba(30, 227, 150, 0.28);
+      color: var(--mint);
+    }}
+    .card.bad .chip.status {{
+      background: var(--error-soft);
+      border-color: rgba(235, 93, 98, 0.28);
+      color: var(--error);
     }}
     .dot {{
       width: 6px;
       height: 6px;
-      border-radius: 50%;
-      background: var(--mint);
-      box-shadow: 0 0 10px var(--mint);
-    }}
-    .card.bad .dot {{
-      background: var(--error);
-      box-shadow: 0 0 10px var(--error);
-    }}
-    .status {{
-      color: var(--mint);
-      background: var(--mint-soft);
-      border-color: rgba(30,227,150,0.28);
-    }}
-    .card.bad .status {{
-      color: var(--error);
-      background: var(--error-soft);
-      border-color: rgba(235,93,98,0.28);
+      border-radius: 999px;
+      background: currentColor;
+      box-shadow: 0 0 8px currentColor;
     }}
     .hint {{
-      margin-top: 18px;
       color: var(--muted);
       font-size: 11px;
       letter-spacing: 0.01em;
@@ -2384,7 +2682,14 @@ def _render_auth_callback_html(
     <main class="card {state_class}">
       <div class="avatar">
         <div class="avatar-inner">
-          <img src="{safe_avatar}" alt="" referrerpolicy="no-referrer" />
+          <img
+            id="cf-avatar"
+            src="{safe_avatar}"
+            alt=""
+            referrerpolicy="no-referrer"
+            data-fallback="{safe_fallback}"
+            data-initial="{initial}"
+          />
         </div>
       </div>
       <h1>{headline}</h1>
@@ -2398,6 +2703,26 @@ def _render_auth_callback_html(
     </main>
   </div>
   <script>
+    (function () {{
+      var img = document.getElementById("cf-avatar");
+      if (!img) return;
+      var stage = 0;
+      img.addEventListener("error", function () {{
+        if (stage === 0) {{
+          stage = 1;
+          var fb = img.getAttribute("data-fallback") || "";
+          if (fb && fb !== img.getAttribute("src")) {{
+            img.setAttribute("src", fb);
+            return;
+          }}
+        }}
+        var initial = img.getAttribute("data-initial") || "C";
+        var span = document.createElement("span");
+        span.className = "initial";
+        span.textContent = initial;
+        img.replaceWith(span);
+      }});
+    }})();
     if ({status_js} && window.__TAURI__) {{
       setTimeout(() => {{
         try {{
@@ -2475,16 +2800,37 @@ async def auth_callback(
             await emit_log("WARNING", f"OAuth token kind unknown ({token_kind})")
 
     # Prefer CultForge identity; fall back to OAuth provider payload.
+    # OAuth ``avatar_url`` is the hosted profile avatar URL (often still
+    # percent-encoded in the callback query): decode + extract user id.
+    oauth_avatar_decoded = _decode_oauth_avatar_url(avatar_url)
     username = identity.get("username") or (name or "").strip() or "Forger"
     handle_name = identity.get("handle_name") or ""
     profile_email = identity.get("email") or email
     profile_avatar = identity.get("avatar_url") or ""
-    user_id = identity.get("user_id") or ""
+    user_id = (
+        identity.get("user_id")
+        or _user_id_from_avatar_url(oauth_avatar_decoded)
+        or _user_id_from_avatar_url(profile_avatar)
+        or ""
+    )
+    preferred_avatar = _prefer_display_avatar(profile_avatar, oauth_avatar_decoded)
+
+    # Seed local avatar cache from the OAuth/profile avatar URL so the
+    # launcher `/media/avatar/{user_id}` proxy works after sign-in.
+    http: httpx.AsyncClient | None = getattr(request.app.state, "http", None)
+    if status and user_id and http is not None and preferred_avatar:
+        await _seed_local_avatar_from_url(http, user_id, preferred_avatar)
+
     display_avatar = _callback_avatar_src(
         request,
         user_id=user_id,
         cultforge_avatar=profile_avatar,
-        oauth_avatar=avatar_url,
+        oauth_avatar=oauth_avatar_decoded,
+    )
+    avatar_fallback = (
+        _sidecar_avatar_src(request, user_id, bust="oauth-fb")
+        if user_id
+        else _DEFAULT_OAUTH_AVATAR
     )
 
     html_content = _render_auth_callback_html(
@@ -2493,17 +2839,28 @@ async def auth_callback(
         username=username,
         handle_name=handle_name,
         avatar_src=display_avatar,
+        avatar_fallback=avatar_fallback,
         token=token_str,
         message=message_str,
     )
 
     global _oauth_pending
+    # Always hand the launcher a sidecar-proxied avatar when we know the uid —
+    # never raw api.cultforge.com (CF 1010 in the webview).
+    if user_id:
+        display_avatar_for_client = _sidecar_avatar_src(
+            request, user_id, bust="oauth"
+        )
+    else:
+        display_avatar_for_client = preferred_avatar or ""
     _oauth_pending = {
         "type": "oauth_callback",
         "status": status,
         "message": message_str,
-        # CultForge fields first; OAuth query values remain as fallbacks.
-        "avatar_url": profile_avatar or avatar_url,
+        "avatar_url": display_avatar_for_client
+        or preferred_avatar
+        or profile_avatar
+        or oauth_avatar_decoded,
         "email": profile_email,
         "name": username,
         "username": identity.get("username") or name,
@@ -2543,11 +2900,18 @@ async def set_session(request: Request) -> JSONResponse:
             status_code=400,
             content={"status": False, "message": "token required"},
         )
-    fp = sdk.get_session_fingerprint()
+    # Prefer fingerprint already bound during /auth/callback; do not clear it.
+    fp = sdk.get_session_fingerprint() if sdk is not None else {}
+    ua = fp.get("user_agent") if isinstance(fp, dict) else None
+    plat = fp.get("platform") if isinstance(fp, dict) else None
+    if not ua:
+        ua = _skey_user_agent
+    if not plat:
+        plat = _skey_platform
     set_session_key(
         token.strip(),
-        user_agent=fp.get("user_agent"),
-        platform=fp.get("platform"),
+        user_agent=ua if isinstance(ua, str) else None,
+        platform=plat if isinstance(plat, str) else None,
         sdk=sdk,
     )
     await broadcast_ws({"type": "session_ready", "status": True})
@@ -2711,7 +3075,7 @@ async def logout(request: Request):
     return JSONResponse(status_code=code, content=data)
 
 
-LOBBY_AUDIO_STATIC = "https://api.cultforge.com/static/music/theme.mp3"
+LOBBY_AUDIO_STATIC = f"{API_BASE}/static/music/theme.mp3"
 
 
 @app.get("/music/lobby")
@@ -2745,44 +3109,41 @@ async def music_lobby_theme() -> JSONResponse:
 
 
 @app.get("/music/lobby/audio")
-async def music_lobby_audio():
+async def music_lobby_audio(request: Request):
     """Same-origin MP3 proxy — remote static file has no CORS for Web Audio."""
-    client = httpx.AsyncClient(timeout=90.0, follow_redirects=True)
+    if not _upstream_host_allowed(LOBBY_AUDIO_STATIC):
+        return JSONResponse(
+            status_code=502,
+            content={"status": False, "message": "Lobby audio host not allowlisted"},
+        )
+    http: httpx.AsyncClient | None = getattr(request.app.state, "http", None)
+    owns = http is None
+    client = http or httpx.AsyncClient(timeout=90.0)
     try:
-        request = client.build_request("GET", LOBBY_AUDIO_STATIC)
-        response = await client.send(request, stream=True)
-        if response.status_code >= 400:
-            await response.aclose()
-            await client.aclose()
+        res, status = await _get_bytes_allowlisted(client, LOBBY_AUDIO_STATIC)
+        if res is None or status >= 400 or not res.content:
             return JSONResponse(
                 status_code=502,
                 content={"status": False, "message": "Lobby audio upstream failed"},
             )
         headers: dict[str, str] = {"Cache-Control": "public, max-age=86400"}
-        length = response.headers.get("content-length")
+        length = res.headers.get("content-length")
         if length:
             headers["Content-Length"] = length
-
-        async def stream():
-            try:
-                async for chunk in response.aiter_bytes(64 * 1024):
-                    yield chunk
-            finally:
-                await response.aclose()
-                await client.aclose()
-
-        return StreamingResponse(
-            stream(),
+        return Response(
+            content=res.content,
             media_type="audio/mpeg",
             headers=headers,
         )
     except Exception as exc:
-        await client.aclose()
         await emit_log("WARNING", f"Lobby audio proxy failed: {exc}")
         return JSONResponse(
             status_code=502,
-            content={"status": False, "message": str(exc), "code": 502},
+            content={"status": False, "message": "Lobby audio upstream failed"},
         )
+    finally:
+        if owns:
+            await client.aclose()
 
 
 @app.get("/chloe/prefs")
@@ -2957,23 +3318,23 @@ async def chloe_set_inventory(request: Request) -> JSONResponse:
 
 @app.get("/chloe/tools")
 async def chloe_tools_catalog() -> JSONResponse:
-    """Proxy Chloe tool catalog for launcher LLM adapters (no sKEY required)."""
+    """Proxy Chloe tool catalog for launcher LLM adapters (requires session)."""
     code, data = await _chloe_api(
         "GET",
         "/v1/chloe/tools",
-        require_session=False,
+        require_session=True,
     )
     return JSONResponse(status_code=code, content=data)
 
 
 @app.get("/chloe/system-prompt")
 async def chloe_system_prompt_proxy() -> JSONResponse:
-    """Proxy Chloe system prompt for launcher LLM adapters (no sKEY required)."""
+    """Proxy Chloe system prompt for launcher LLM adapters (requires session)."""
     code, data = await _chloe_api(
         "GET",
         "/v1/chloe/system-prompt",
         command="chloe_system_prompt_for_launcher_llm_(e.g._user_gemini_key)",
-        require_session=False,
+        require_session=True,
     )
     return JSONResponse(status_code=code, content=data)
 
@@ -3283,6 +3644,170 @@ async def guilds_discover(
     )
 
 
+async def _proxy_guild_branding_upload(
+    command: str,
+    params: dict[str, Any],
+    request: Request,
+) -> dict[str, Any]:
+    """POST guild icon/banner without depending on SDK operation ids."""
+    guild_id = str(params.get("guild_id") or "").strip()
+    if not guild_id:
+        raise ValueError("guild_id is required")
+
+    kind = "icon" if command == "upload_guild_icon" else "banner"
+    body: dict[str, Any] = {}
+    b64 = str(params.get("image_base64") or "").strip()
+    url = str(params.get("image_url") or "").strip()
+    content_type = str(params.get("content_type") or "").strip()
+    if b64 and url:
+        raise ValueError("Send either image_base64 or image_url, not both")
+    if b64:
+        body["image_base64"] = b64
+        if content_type:
+            body["content_type"] = content_type
+    elif url:
+        body["image_url"] = url
+    else:
+        raise ValueError("image_base64 or image_url is required")
+
+    headers = _api_auth_headers(require_session=True)
+    headers["Content-Type"] = "application/json"
+    remote = f"{GUILDS_BASE}/v1/guilds/{quote(guild_id, safe='')}/{kind}"
+    http: httpx.AsyncClient | None = getattr(request.app.state, "http", None)
+    if http is None:
+        async with httpx.AsyncClient(timeout=60.0, follow_redirects=True) as client:
+            response = await client.post(remote, headers=headers, json=body)
+    else:
+        response = await http.post(remote, headers=headers, json=body)
+
+    try:
+        data = response.json()
+    except Exception:
+        data = {
+            "status": response.is_success,
+            "message": (response.text or "")[:400],
+            "code": response.status_code,
+        }
+    if not isinstance(data, dict):
+        data = {"status": response.is_success, "data": data, "code": response.status_code}
+    if response.status_code >= 400:
+        message = (
+            data.get("message")
+            or data.get("detail")
+            or data.get("error")
+            or f"HTTP {response.status_code}"
+        )
+        raise RuntimeError(str(message))
+    # Bust in-memory + disk cache for this guild asset.
+    media_key = f"{guild_id}/{kind}"
+    _guild_media_local_cache.pop(media_key, None)
+    try:
+        bin_path, meta_path = _guild_media_cache_paths(media_key)
+        for path in (bin_path, meta_path):
+            try:
+                os.remove(path)
+            except OSError:
+                pass
+    except Exception:
+        pass
+    return data
+
+
+def _remote_json_body(response: httpx.Response) -> Any:
+    try:
+        return response.json()
+    except Exception:
+        return {
+            "e": "invalid_json",
+            "text": (response.text or "")[:400],
+            "code": response.status_code,
+            "message": "Invalid JSON from remote",
+        }
+
+
+def _with_http_error(response: httpx.Response, body: Any) -> Any:
+    if response.is_success:
+        return body
+    if isinstance(body, dict):
+        out = dict(body)
+        out.setdefault("code", response.status_code)
+        if "message" not in out and "detail" in out:
+            out["message"] = str(out["detail"])
+        return out
+    return {
+        "code": response.status_code,
+        "message": str(body) if body is not None else (response.text or "")[:400],
+    }
+
+
+async def _enqueue_agent_command(sdk: cliX.Client, params: dict[str, Any]) -> Any:
+    """Always POST /v1/agents/{node_id}/commands — never fall through to GET list."""
+    node_id = str(params.get("node_id") or "").strip()
+    action = str(params.get("action") or params.get("command") or "").strip()
+    if not node_id or not action:
+        raise ValueError("node_id and action are required")
+    payload = params.get("payload") if isinstance(params.get("payload"), dict) else {}
+    body: dict[str, Any] = {"action": action, "payload": payload}
+    workload_id = str(params.get("workload_id") or params.get("workloadId") or "").strip()
+    if workload_id:
+        body["workload_id"] = workload_id
+    local_server_id = str(
+        params.get("local_server_id")
+        or payload.get("local_server_id")
+        or payload.get("server_id")
+        or ""
+    ).strip()
+    if local_server_id:
+        body["local_server_id"] = local_server_id
+    if params.get("confirm") is True or payload.get("confirm") is True:
+        body["confirm"] = True
+    url = f"{module_base('api')}/v1/agents/{quote(node_id, safe='')}/commands"
+    response = await sdk._request("POST", url, json=body)
+    data = _with_http_error(response, _remote_json_body(response))
+    row = data.get("data") if isinstance(data, dict) else None
+    if not isinstance(row, dict):
+        row = data if isinstance(data, dict) else None
+    command_id = ""
+    if isinstance(row, dict):
+        command_id = str(row.get("id") or row.get("command_id") or "").strip()
+    await emit_log(
+        "INFO",
+        f"Enqueue POST {action} -> {node_id} id={command_id or 'none'} HTTP {response.status_code}",
+    )
+    if isinstance(data, list) or isinstance(
+        data.get("data") if isinstance(data, dict) else None, list
+    ) or isinstance(data.get("commands") if isinstance(data, dict) else None, list):
+        raise RuntimeError(
+            "Command enqueue returned a list instead of a created command"
+        )
+    if isinstance(data, dict) and int(data.get("code") or 0) >= 400:
+        return data
+    if not command_id and response.is_success:
+        raise RuntimeError("Command enqueue did not return a command id")
+    return data
+
+
+async def _upsert_agent_workload(sdk: cliX.Client, params: dict[str, Any]) -> Any:
+    """Always POST /v1/agents/{node_id}/workloads with desired_state."""
+    node_id = str(params.get("node_id") or "").strip()
+    if not node_id:
+        raise ValueError("node_id is required")
+    body = {
+        key: value
+        for key, value in params.items()
+        if key != "node_id" and value is not None
+    }
+    url = f"{module_base('api')}/v1/agents/{quote(node_id, safe='')}/workloads"
+    response = await sdk._request("POST", url, json=body)
+    data = _with_http_error(response, _remote_json_body(response))
+    desired = str(body.get("desired_state") or "")
+    await emit_log(
+        "INFO",
+        f"Workload POST desired={desired or 'none'} -> {node_id} HTTP {response.status_code}",
+    )
+    return data
+
+
 @app.get("/send/{module}/{command}")
 @app.post("/send/{module}/{command}")
 @app.patch("/send/{module}/{command}")
@@ -3303,8 +3828,46 @@ async def send(module: str, command: str, request: Request) -> JSONResponse:
                 if value is None:
                     continue
                 params[str(key)] = value
+
+    # Branding uploads may be missing from older frozen SDK manifests —
+    # proxy them directly so Manage → Branding works without a full re-freeze
+    # as long as this client.py is what is running.
+    if module == "guilds" and command in {
+        "upload_guild_icon",
+        "upload_guild_banner",
+    }:
+        try:
+            data = await _proxy_guild_branding_upload(command, params, request)
+            return JSONResponse(status_code=200, content=data)
+        except PermissionError as e:
+            return JSONResponse(
+                status_code=401,
+                content={"error": "unauthorized", "message": str(e)},
+            )
+        except Exception as e:
+            await emit_log(
+                "EXCEPTION",
+                f"guild branding upload failed: {e}",
+                stack=traceback.format_exc(),
+            )
+            return JSONResponse(
+                status_code=500,
+                content={
+                    "error": "dispatch_failed",
+                    "message": str(e),
+                },
+            )
+
     try:
-        data = await sdk.dispatch(module, command, **params)
+        if module == "api" and command in (
+            "enqueue_a_command_for_the_agent_to_poll",
+            "enqueue_command_for_a_node",
+        ):
+            data = await _enqueue_agent_command(sdk, params)
+        elif module == "api" and command == "attach_a_workload_to_a_node":
+            data = await _upsert_agent_workload(sdk, params)
+        else:
+            data = await sdk.dispatch(module, command, **params)
     except Exception as e:
         await emit_log(
             "EXCEPTION",
@@ -3328,6 +3891,22 @@ async def send(module: str, command: str, request: Request) -> JSONResponse:
             code = int(data["code"])
         except (TypeError, ValueError):
             code = 200
+    if code in (401, 403) and module == "api" and command == "get_my_profile":
+        detail = ""
+        if isinstance(data, dict):
+            detail = str(
+                data.get("message")
+                or data.get("detail")
+                or data.get("error")
+                or ""
+            )[:240]
+        fp = sdk.get_session_fingerprint() if sdk is not None else {}
+        await emit_log(
+            "WARNING",
+            f"get_my_profile auth failure HTTP {code} detail={detail!r} "
+            f"has_token={'yes' if (sdk and sdk.get_session_token()) else 'no'} "
+            f"ua={'yes' if (isinstance(fp, dict) and fp.get('user_agent')) else 'no'}",
+        )
     return JSONResponse(status_code=code, content=data)
 
 

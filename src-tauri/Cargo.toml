@@ -1,6 +1,6 @@
 [package]
 name = "cultforge"
-version = "2.4.0"
+version = "2.4.1"
 description = "A Tauri App"
 authors = ["you"]
 edition = "2021"
@@ -42,4 +42,5 @@ tauri-plugin-dialog = "2.7.2"
 rfd = "0.17.2"
 tauri-plugin-deep-link = "2"
 tauri-plugin-single-instance = { version = "2", features = ["deep-link"] }
+fastnbt = "2"
 

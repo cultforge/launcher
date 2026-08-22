@@ -16,6 +16,7 @@ export type AdminSectionId =
   | "hotfixes"
   | "whoami"
   | "catalog"
+  | "metrics"
   | "explorer"
   | `dynamic:${string}`;
 
@@ -44,6 +45,7 @@ export const ADMIN_SECTIONS: AdminSectionMeta[] = [
   { id: "hotfixes", label: "Hotfixes", prefixes: ["hotfixes", "global", "updates"], sort: 120 },
   { id: "whoami", label: "Whoami", prefixes: ["whoami"], alwaysShow: true, sort: 130 },
   { id: "catalog", label: "Catalog", prefixes: ["catalog"], alwaysShow: true, sort: 140 },
+  { id: "metrics", label: "Metrics", prefixes: ["metrics", "status"], alwaysShow: true, sort: 145 },
   { id: "explorer", label: "API Explorer", prefixes: [], developer: true, sort: 999 },
 ];
 

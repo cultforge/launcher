@@ -1,16 +1,71 @@
 import { useEffect, useMemo, useState } from "react";
 import { Chip } from "@heroui/react";
 import { useDiscoverStore } from "../../../../stores/discover";
+import { useDiscoverBookmarksStore } from "../../../../stores/discoverBookmarks";
 import { DISCOVER_FILTERS, filterNews, type NewsStory } from "../../../../data/news";
 import { cn } from "../../../../lib/cn";
 import {
   BorderGlow,
   useThemeBorderGlow,
 } from "../../../magic/border-glow";
+import { RevealStory } from "../../../news/RevealStory";
 import { RichMarkdown } from "../../../RichMarkdown";
 import { handleContentHref } from "../../../../lib/deepLinks";
 import { GuildIcon } from "../../../GuildIcon";
 import type { DiscoverGuildCard } from "../../../../lib/cultApi";
+import { toast } from "sonner";
+
+function StoryCover({
+  story,
+  className,
+}: {
+  story: NewsStory;
+  className?: string;
+}) {
+  const [failed, setFailed] = useState(false);
+  if (story.coverUrl && !failed) {
+    return (
+      <div className={cn("relative overflow-hidden bg-bg-elevated", className)}>
+        <img
+          src={story.coverUrl}
+          alt=""
+          className="absolute inset-0 h-full w-full object-cover"
+          referrerPolicy="no-referrer"
+          onError={() => setFailed(true)}
+        />
+      </div>
+    );
+  }
+  return (
+    <div
+      className={cn("relative overflow-hidden", className)}
+      style={{ background: story.thumb }}
+    />
+  );
+}
+
+function BookmarkButton({ story }: { story: NewsStory }) {
+  const has = useDiscoverBookmarksStore((s) => s.has(story.id));
+  const toggle = useDiscoverBookmarksStore((s) => s.toggle);
+  return (
+    <button
+      type="button"
+      onClick={(e) => {
+        e.stopPropagation();
+        toggle(story);
+        toast.success(has ? "Removed bookmark" : "Saved locally");
+      }}
+      className={cn(
+        "rounded-md border px-2 py-1 text-[10px] font-semibold cursor-pointer",
+        has
+          ? "border-primary-base/40 bg-primary-base/12 text-primary-base"
+          : "border-white/10 text-text-muted hover:text-text-primary",
+      )}
+    >
+      {has ? "Saved" : "Save"}
+    </button>
+  );
+}
 
 function StoryDetail({
   story,
@@ -21,7 +76,10 @@ function StoryDetail({
 }) {
   return (
     <div className="fixed inset-0 z-100 flex items-center justify-center p-6 bg-black/70 backdrop-blur-sm">
-      <div className="relative w-full max-w-2xl max-h-[min(80vh,640px)] cf-panel rounded-2xl overflow-hidden border border-white/10 flex flex-col">
+      <div
+        className="relative w-full max-w-2xl max-h-[min(80vh,640px)] cf-panel rounded-2xl overflow-hidden border border-white/10 flex flex-col"
+        onClick={(e) => e.stopPropagation()}
+      >
         <div className="shrink-0 flex items-center justify-between px-4 py-3 bg-black/40 border-b border-white/8">
           <div className="min-w-0 pr-4">
             <p className="text-[9px] uppercase tracking-wider text-primary-base font-semibold">
@@ -32,21 +90,19 @@ function StoryDetail({
               {story.title}
             </h2>
           </div>
-          <button
-            type="button"
-            onClick={onClose}
-            className="text-[11px] uppercase tracking-wide text-text-muted hover:text-white cursor-pointer shrink-0"
-          >
-            Close
-          </button>
+          <div className="flex items-center gap-2 shrink-0">
+            <BookmarkButton story={story} />
+            <button
+              type="button"
+              onClick={onClose}
+              className="flex h-8 w-8 items-center justify-center rounded-lg border border-white/10 text-[16px] leading-none text-text-muted hover:text-white cursor-pointer"
+            >
+              ×
+            </button>
+          </div>
         </div>
         {story.coverUrl ? (
-          <div
-            className="h-36 shrink-0 border-b border-white/6"
-            style={{
-              background: `center / cover no-repeat url("${story.coverUrl.replace(/"/g, '\\"')}")`,
-            }}
-          />
+          <StoryCover story={story} className="h-40 shrink-0 border-b border-white/6" />
         ) : null}
         <div className="flex-1 min-h-0 overflow-y-auto scroll-hidden p-5 flex flex-col gap-3">
           {story.dek ? (
@@ -76,7 +132,7 @@ function StoryDetail({
                 rel="noreferrer"
                 className="px-3 py-1.5 text-[11px] font-semibold rounded-lg border border-white/10 text-text-muted hover:text-text-primary"
               >
-                Share link
+                Open source
               </a>
             ) : null}
           </div>
@@ -147,6 +203,7 @@ function DiscoverPage() {
   const loading = useDiscoverStore((s) => s.loading);
   const error = useDiscoverStore((s) => s.error);
   const refresh = useDiscoverStore((s) => s.refresh);
+  const bookmarks = useDiscoverBookmarksStore((s) => s.items);
   const [story, setStory] = useState<NewsStory | null>(null);
   const themeBorderGlow = useThemeBorderGlow();
 
@@ -154,10 +211,10 @@ function DiscoverPage() {
     void refresh();
   }, [refresh]);
 
-  const filtered = useMemo(
-    () => filterNews(stories, category),
-    [stories, category],
-  );
+  const filtered = useMemo(() => {
+    if (category === "Saved") return bookmarks;
+    return filterNews(stories, category);
+  }, [stories, category, bookmarks]);
 
   const hero = filtered[0] ?? null;
   const featured = filtered.slice(1, 3);
@@ -171,7 +228,7 @@ function DiscoverPage() {
             Discover
           </h2>
           <p className="text-[11px] text-text-muted mt-0.5">
-            Launcher news, guild notes, and featured communities
+            Launcher news, Minecraft updates, guild notes, and saved stories
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-1.5">
@@ -196,7 +253,7 @@ function DiscoverPage() {
           <button
             type="button"
             onClick={() => void refresh({ force: true })}
-            disabled={loading}
+            disabled={loading || category === "Saved"}
             className="px-3 py-1.5 text-[11px] font-semibold rounded-lg border border-white/8 text-text-muted hover:text-text-primary cursor-pointer disabled:opacity-50"
           >
             {loading ? "Refreshing…" : "Refresh"}
@@ -210,7 +267,7 @@ function DiscoverPage() {
         </div>
       ) : null}
 
-      <GuildStrip guilds={guilds} />
+      {category !== "Saved" ? <GuildStrip guilds={guilds} /> : null}
 
       {hero ? (
         <div className="relative shrink-0 overflow-x-clip overflow-y-visible">
@@ -223,19 +280,19 @@ function DiscoverPage() {
               onClick={() => setStory(hero)}
               className="w-full h-full min-h-55 overflow-hidden text-left cursor-pointer group relative rounded-[inherit]"
             >
-              <div
-                className="absolute inset-0"
-                style={{ background: hero.thumb }}
-              />
+              <StoryCover story={hero} className="absolute inset-0" />
               <div className="absolute inset-0 bg-linear-to-t from-black/90 via-black/45 to-black/20" />
               <div className="absolute inset-0 bg-linear-to-r from-black/50 via-transparent to-transparent" />
               <div className="relative z-10 h-full flex flex-col justify-end p-5 gap-2 max-w-3xl">
-                <Chip size="sm" variant="soft" color="default">
-                  <Chip.Label className="text-[10px]">
-                    {hero.category}
-                    {hero.isPinned ? " · Pinned" : ""}
-                  </Chip.Label>
-                </Chip>
+                <div className="flex items-center gap-2">
+                  <Chip size="sm" variant="soft" color="default">
+                    <Chip.Label className="text-[10px]">
+                      {hero.category}
+                      {hero.isPinned ? " · Pinned" : ""}
+                    </Chip.Label>
+                  </Chip>
+                  <BookmarkButton story={hero} />
+                </div>
                 <h3 className="font-sora text-[22px] font-bold text-text-primary group-hover:text-white leading-snug">
                   {hero.title}
                 </h3>
@@ -259,7 +316,9 @@ function DiscoverPage() {
         <div className="cf-panel rounded-xl px-5 py-10 text-center text-[13px] text-text-muted">
           {loading
             ? "Loading Discover…"
-            : "No stories in this category yet."}
+            : category === "Saved"
+              ? "No saved stories yet. Bookmark one with Save."
+              : "No stories in this category yet."}
         </div>
       )}
 
@@ -272,13 +331,14 @@ function DiscoverPage() {
               onClick={() => setStory(n)}
               className="cf-panel rounded-xl overflow-hidden text-left cursor-pointer group flex flex-col"
             >
-              <div className="h-25 relative" style={{ background: n.thumb }}>
-                <div className="absolute inset-0 bg-linear-to-t from-black/50 to-transparent" />
-              </div>
+              <StoryCover story={n} className="h-28 relative" />
               <div className="p-3.5 flex flex-col gap-1.5">
-                <span className="text-[9px] uppercase tracking-wider text-primary-base font-semibold">
-                  {n.category}
-                </span>
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-[9px] uppercase tracking-wider text-primary-base font-semibold">
+                    {n.category}
+                  </span>
+                  <BookmarkButton story={n} />
+                </div>
                 <span className="text-[14px] font-sora font-bold text-text-primary group-hover:text-white leading-snug line-clamp-2">
                   {n.title}
                 </span>
@@ -304,9 +364,9 @@ function DiscoverPage() {
                 onClick={() => setStory(n)}
                 className="cf-panel rounded-xl px-3.5 py-3 flex gap-3 text-left cursor-pointer hover:bg-bg-elevated transition-colors"
               >
-                <div
-                  className="w-16 h-16 rounded-lg shrink-0 border border-white/6"
-                  style={{ background: n.thumb }}
+                <StoryCover
+                  story={n}
+                  className="w-20 h-14 rounded-lg shrink-0 border border-white/6"
                 />
                 <div className="flex-1 min-w-0 flex flex-col justify-center gap-0.5">
                   <div className="flex items-center gap-2">
@@ -315,6 +375,9 @@ function DiscoverPage() {
                     </span>
                     <span className="text-[10px] text-text-disabled">
                       {n.date}
+                    </span>
+                    <span className="ml-auto">
+                      <BookmarkButton story={n} />
                     </span>
                   </div>
                   <div className="text-[13px] font-semibold text-text-primary truncate">
@@ -331,7 +394,16 @@ function DiscoverPage() {
       )}
 
       {story ? (
-        <StoryDetail story={story} onClose={() => setStory(null)} />
+        story.slides.length > 0 ? (
+          <RevealStory
+            open
+            title={story.title}
+            slides={story.slides}
+            onClose={() => setStory(null)}
+          />
+        ) : (
+          <StoryDetail story={story} onClose={() => setStory(null)} />
+        )
       ) : null}
     </div>
   );

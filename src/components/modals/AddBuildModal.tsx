@@ -239,6 +239,8 @@ export function AddBuildModal() {
       open={open}
       title="Add build"
       onClose={installing ? () => undefined : closeModal}
+      confirmClose={!installing}
+      confirmCloseMessage="Close add-build dialog? Progress will be discarded."
       wide
       footer={
         <div className="flex items-center justify-between gap-3">

@@ -82,6 +82,8 @@ const SESSION_KEY = "auth.session";
 
 /** Prevent WS + poll from double-finishing OAuth. */
 let oauthCallbackInFlight: Promise<void> | null = null;
+/** Bumps on login/logout so stale hydrate 401s cannot wipe a fresh session. */
+let authEpoch = 0;
 let cachedAuthToastShown = false;
 
 type PersistedSession = {
@@ -114,7 +116,11 @@ interface AppState {
   }) => Promise<void>;
   signOut: () => Promise<void>;
   deleteAccount: () => Promise<void>;
-  handleSessionExpired: (message?: string) => Promise<void>;
+  handleSessionExpired: (
+    message?: string,
+    epoch?: number,
+    opts?: { quiet?: boolean },
+  ) => Promise<void>;
   cancelAuth: () => void;
   setCurrentUserFromProfile: (
     api: unknown,
@@ -241,6 +247,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   hydrateSession: async () => {
+    const epoch = authEpoch;
     set({ authStatus: "authenticating", authError: null });
 
     const enterCachedAuth = async (
@@ -248,6 +255,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       reason: string,
       sessionMarker: "sidecar" | "cached",
     ) => {
+      if (epoch !== authEpoch) return;
       const offlineUser: CurrentUser = {
         ...user,
         status: "offline",
@@ -283,6 +291,7 @@ export const useAppStore = create<AppState>((set, get) => ({
           );
           return;
         }
+        if (epoch !== authEpoch) return;
         set({
           currentUser: null,
           authStatus: "anonymous",
@@ -307,6 +316,7 @@ export const useAppStore = create<AppState>((set, get) => ({
           );
           return;
         }
+        if (epoch !== authEpoch) return;
         set({
           currentUser: null,
           authStatus: "anonymous",
@@ -315,6 +325,8 @@ export const useAppStore = create<AppState>((set, get) => ({
         });
         return;
       }
+
+      if (epoch !== authEpoch) return;
 
       if (!hasSession) {
         await persistSession(null);
@@ -334,6 +346,7 @@ export const useAppStore = create<AppState>((set, get) => ({
 
       try {
         const profile = await fetchMyProfile();
+        if (epoch !== authEpoch) return;
         logger.debug(
           `hydrate get_my_profile keys=[${profileEnvelopeKeys(profile)}]`,
         );
@@ -367,8 +380,16 @@ export const useAppStore = create<AppState>((set, get) => ({
         });
         return;
       } catch (e) {
+        if (epoch !== authEpoch) return;
         if (isHardAuthError(e)) {
-          await get().handleSessionExpired(authFailureMessage(e));
+          // Boot / stale keyring vs local API — clear quietly so Login does not
+          // flash "Session expired" for a second. Mid-session live auth still warns.
+          const wasLive =
+            get().authStatus === "authenticated" &&
+            get().authSource === "live";
+          await get().handleSessionExpired(authFailureMessage(e), epoch, {
+            quiet: !wasLive,
+          });
           return;
         }
         logger.debug(
@@ -396,6 +417,7 @@ export const useAppStore = create<AppState>((set, get) => ({
         });
       }
     } catch (e) {
+      if (epoch !== authEpoch) return;
       logger.warn(
         `hydrateSession failed: ${e instanceof Error ? e.message : String(e)}`,
       );
@@ -424,6 +446,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       set({ authError: message });
       throw new Error(message);
     }
+    authEpoch += 1;
     set({ authStatus: "authenticating", authError: null });
     try {
       const url = await startOAuth(provider);
@@ -472,6 +495,8 @@ export const useAppStore = create<AppState>((set, get) => ({
         authError: null,
         pendingOAuth: payload,
       });
+      // Invalidate in-flight hydrate so a stale 401 cannot clear this login.
+      authEpoch += 1;
 
       // Sidecar already applied the JWT in-process. Prefer not trusting WS tokens.
       if (payload.token && payload.token_kind === "session") {
@@ -500,11 +525,9 @@ export const useAppStore = create<AppState>((set, get) => ({
             return get().authStatus === "authenticated";
           }
         } catch (e) {
-          if (isUnauthorizedError(e) && outcome === "login") {
-            await get().handleSessionExpired(authFailureMessage(e));
-            return true; // handled
-          }
-          logger.debug(
+          // Never wipe a brand-new OAuth session because /profile/me 401'd —
+          // common with local API fingerprint/DB lag. Fall through to soft paths.
+          logger.warn(
             `Profile fetch after OAuth failed (attempt ${attempt}): ${
               e instanceof Error ? e.message : String(e)
             }`,
@@ -670,7 +693,13 @@ export const useAppStore = create<AppState>((set, get) => ({
     }
   },
 
-  handleSessionExpired: async (message) => {
+  handleSessionExpired: async (message, epoch, opts) => {
+    if (typeof epoch === "number" && epoch !== authEpoch) {
+      logger.debug("Ignoring stale session-expired from older hydrate");
+      return;
+    }
+    authEpoch += 1;
+    const quiet = Boolean(opts?.quiet);
     const msg = message || "Sign in again to continue.";
     try {
       if (get().clientReady) {
@@ -689,14 +718,20 @@ export const useAppStore = create<AppState>((set, get) => ({
       currentUser: null,
       authStatus: "anonymous",
       authSource: "none",
-      authError: msg,
+      // Quiet boot cleanup must not paint "Session expired" on the login screen.
+      authError: quiet ? null : msg,
       pendingOAuth: null,
       sessionToken: null,
     });
-    logger.warn(msg);
+    if (quiet) {
+      logger.debug(`Quiet session clear: ${msg}`);
+    } else {
+      logger.warn(msg);
+    }
   },
 
   signOut: async () => {
+    authEpoch += 1;
     try {
       if (get().clientReady) {
         await clientLogout();

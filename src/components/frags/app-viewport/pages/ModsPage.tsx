@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
 import { motion } from "framer-motion";
+import { toast } from "sonner";
 import { useNavigationStore } from "../../../../typlibs";
+import { goHomeBuilds } from "../../../../lib/homeNav";
 import { useBuildStore } from "../../../../stores/build";
 import {
   useLibraryContentStore,
@@ -11,10 +13,19 @@ import {
   useBuildUiStore,
   type BuildTabId,
 } from "../../../../stores/buildUi";
-import {
-  EntityImage,
-} from "../../../EntityImage";
+import { EntityImage } from "../../../EntityImage";
 import type { VisualEntityKind } from "../../../../lib/entityVisuals";
+import { ImportUrlModal } from "../../../modals/ImportUrlModal";
+import {
+  importContentFiles,
+  importContentFromUrl,
+  importWorldFromFolder,
+  importWorldFromUrl,
+  importWorldFromZip,
+  isImportCancelled,
+  toastWorldImport,
+  type ContentImportKind,
+} from "../../../../lib/contentImport";
 
 const TABS = [
   "Mods",
@@ -46,6 +57,14 @@ function destinationTab(tab: LibraryTab): BuildTabId {
   if (tab === "Resource Packs" || tab === "Datapacks") return "Packs";
   if (tab === "Worlds") return "World Management";
   return "Mods";
+}
+
+function contentKindForTab(tab: LibraryTab): ContentImportKind | null {
+  if (tab === "Mods") return "mods";
+  if (tab === "Shaders") return "shaderpacks";
+  if (tab === "Resource Packs") return "resourcepacks";
+  if (tab === "Datapacks") return "datapacks";
+  return null;
 }
 
 function typeLabel(item: LibraryContentItem): string {
@@ -113,6 +132,8 @@ function ModsPage() {
   const enriching = useLibraryContentStore((state) => state.enriching);
   const [tab, setTab] = useState<LibraryTab>("Mods");
   const [search, setSearch] = useState("");
+  const [importBusy, setImportBusy] = useState(false);
+  const [urlOpen, setUrlOpen] = useState(false);
 
   useEffect(() => {
     if (sideItem === "Library" || sideItem === "Installed Mods") setTab("Mods");
@@ -132,15 +153,61 @@ function ModsPage() {
     [inTab, search],
   );
 
+  const canImport =
+    Boolean(activeBuild?.id && activeBuild.id !== "none" && activeBuild.location) &&
+    !activeBuild.managed &&
+    !importBusy;
+
+  const importBlockedReason = !activeBuild?.location
+    ? "Select a build with an instance folder"
+    : activeBuild.managed
+      ? "Guild-managed builds are locked for local import"
+      : undefined;
+
   const manage = (destination: LibraryTab) => {
     setBuildTab(destinationTab(destination));
-    setPrimaryTab("Builds");
-    setSideItem("Builds");
+    goHomeBuilds();
   };
 
   const selectTab = (next: LibraryTab) => {
     setTab(next);
     setSearch("");
+  };
+
+  const runImport = async (fn: () => Promise<void>) => {
+    setImportBusy(true);
+    try {
+      await fn();
+    } catch (err) {
+      if (!isImportCancelled(err)) {
+        toast.error(err instanceof Error ? err.message : "Import failed");
+      }
+    } finally {
+      setImportBusy(false);
+    }
+  };
+
+  const onImportFiles = () => {
+    const kind = contentKindForTab(tab);
+    if (!kind) return;
+    void runImport(async () => {
+      const n = await importContentFiles(kind);
+      toast.success(
+        n ? `Imported ${n} file${n === 1 ? "" : "s"}` : "No files imported",
+      );
+    });
+  };
+
+  const onImportWorldFolder = () => {
+    void runImport(async () => {
+      toastWorldImport(await importWorldFromFolder());
+    });
+  };
+
+  const onImportWorldZip = () => {
+    void runImport(async () => {
+      toastWorldImport(await importWorldFromZip());
+    });
   };
 
   const emptyLabel = scanning
@@ -168,13 +235,67 @@ function ModsPage() {
                     : "Select a build to manage its mods and packs"}
           </p>
         </div>
-        <button
-          type="button"
-          onClick={() => setPrimaryTab("Store")}
-          className="cf-btn-primary text-[11px] uppercase tracking-wide px-4 py-2 rounded-lg cursor-pointer shrink-0"
-        >
-          Find content
-        </button>
+        <div className="flex items-center gap-2 shrink-0">
+          {tab === "Worlds" ? (
+            <>
+              <button
+                type="button"
+                disabled={!canImport}
+                title={importBlockedReason}
+                onClick={onImportWorldFolder}
+                className="px-3 py-2 text-[11px] font-semibold rounded-lg border border-white/10 text-text-secondary hover:text-text-primary cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                Import folder
+              </button>
+              <button
+                type="button"
+                disabled={!canImport}
+                title={importBlockedReason}
+                onClick={onImportWorldZip}
+                className="px-3 py-2 text-[11px] font-semibold rounded-lg border border-white/10 text-text-secondary hover:text-text-primary cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                Import zip
+              </button>
+              <button
+                type="button"
+                disabled={!canImport}
+                title={importBlockedReason}
+                onClick={() => setUrlOpen(true)}
+                className="px-3 py-2 text-[11px] font-semibold rounded-lg border border-white/10 text-text-secondary hover:text-text-primary cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                Import URL
+              </button>
+            </>
+          ) : (
+            <>
+              <button
+                type="button"
+                disabled={!canImport}
+                title={importBlockedReason}
+                onClick={onImportFiles}
+                className="px-3 py-2 text-[11px] font-semibold rounded-lg border border-white/10 text-text-secondary hover:text-text-primary cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                Import files
+              </button>
+              <button
+                type="button"
+                disabled={!canImport}
+                title={importBlockedReason}
+                onClick={() => setUrlOpen(true)}
+                className="px-3 py-2 text-[11px] font-semibold rounded-lg border border-white/10 text-text-secondary hover:text-text-primary cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                Import URL
+              </button>
+            </>
+          )}
+          <button
+            type="button"
+            onClick={() => setPrimaryTab("Store")}
+            className="cf-btn-primary text-[11px] uppercase tracking-wide px-4 py-2 rounded-lg cursor-pointer"
+          >
+            Find content
+          </button>
+        </div>
       </div>
 
       <nav
@@ -196,7 +317,9 @@ function ModsPage() {
             {item}
             {item === tab && inTab.length > 0 ? (
               <span className="ml-1.5 text-text-disabled normal-case tracking-normal">
-                {search.trim() ? `${visible.length}/${inTab.length}` : inTab.length}
+                {search.trim()
+                  ? `${visible.length}/${inTab.length}`
+                  : inTab.length}
               </span>
             ) : null}
           </button>
@@ -276,6 +399,24 @@ function ModsPage() {
           ))
         )}
       </div>
+
+      <ImportUrlModal
+        open={urlOpen}
+        title={
+          tab === "Worlds" ? "Import world from URL" : `Import ${tab} from URL`
+        }
+        onClose={() => setUrlOpen(false)}
+        onSubmit={async (url) => {
+          if (tab === "Worlds") {
+            toastWorldImport(await importWorldFromUrl(url));
+            return;
+          }
+          const kind = contentKindForTab(tab);
+          if (!kind) throw new Error("Unsupported import tab");
+          await importContentFromUrl(kind, url);
+          toast.success("Imported from URL");
+        }}
+      />
     </div>
   );
 }

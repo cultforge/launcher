@@ -41,3 +41,5 @@ Untitled
 *.njsproj
 *.sln
 *.sw?
+
+dist-client-ci/

@@ -18,6 +18,11 @@ import {
   openInstanceSubdir,
   pickContentFiles,
 } from "../../../lib/buildMeta";
+import { ImportUrlModal } from "../../modals/ImportUrlModal";
+import {
+  importContentFromUrl,
+  isImportCancelled,
+} from "../../../lib/contentImport";
 
 const FILTERS: ContentFilter[] = ["All", "Enabled", "Disabled"];
 
@@ -79,6 +84,8 @@ export function PacksPanel() {
   const scan = useLibraryContentStore((s) => s.scan);
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState<ContentFilter>("All");
+  const [urlOpen, setUrlOpen] = useState(false);
+  const [datapackUrlOpen, setDatapackUrlOpen] = useState(false);
 
   useEffect(() => {
     void loadOptions();
@@ -119,44 +126,121 @@ export function PacksPanel() {
     try {
       const paths = await pickContentFiles("resourcepacks");
       if (!paths.length) return;
-      const n = await importInstanceFiles(buildId, "resourcepacks", paths);
+      const result = await importInstanceFiles(buildId, "resourcepacks", paths);
+      if (result.reroutes.length) {
+        toast.message(`Routed “${result.reroutes[0].name}” to ${result.reroutes[0].toKind}`);
+      }
       if (location) await scan(location);
+      const n = result.imported;
       toast.success(n ? `Added ${n} pack${n === 1 ? "" : "s"}` : "No files imported");
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Could not add pack");
+      if (!isImportCancelled(err)) {
+        toast.error(err instanceof Error ? err.message : "Could not add pack");
+      }
+    }
+  };
+
+  const onAddDatapack = async () => {
+    try {
+      const paths = await pickContentFiles("datapacks");
+      if (!paths.length) return;
+      const result = await importInstanceFiles(buildId, "datapacks", paths);
+      if (result.reroutes.length) {
+        toast.message(`Routed “${result.reroutes[0].name}” to ${result.reroutes[0].toKind}`);
+      }
+      if (location) await scan(location);
+      const n = result.imported;
+      toast.success(
+        n ? `Added ${n} datapack${n === 1 ? "" : "s"}` : "No files imported",
+      );
+    } catch (err) {
+      if (!isImportCancelled(err)) {
+        toast.error(
+          err instanceof Error ? err.message : "Could not add datapack",
+        );
+      }
     }
   };
 
   return (
-    <ContentListShell
-      search={search}
-      onSearchChange={setSearch}
-      searchPlaceholder="Search resource packs…"
-      filters={FILTERS}
-      filter={filter}
-      onFilterChange={setFilter}
-      secondaryAction={
-        managed ? undefined : { label: "Open folder", onClick: onOpenFolder }
-      }
-      primaryAction={
-        managed ? undefined : { label: "Add pack", onClick: () => void onAddPack() }
-      }
-      note={
-        managed ? (
-          <ManagedBuildBanner />
-        ) : (
-          <p className="text-[11px] text-text-muted px-0.5">
-            Enabled packs are written to this build’s options.txt
-            (resourcePacks).
-          </p>
-        )
-      }
-      empty={filtered.length === 0}
-      emptyLabel={scanning ? "Scanning packs…" : "No resource packs found"}
-    >
-      {filtered.map((p) => (
-        <PackRow key={p.id} item={p} locked={managed} onToggle={onToggle} />
-      ))}
-    </ContentListShell>
+    <>
+      <ContentListShell
+        search={search}
+        onSearchChange={setSearch}
+        searchPlaceholder="Search resource packs…"
+        filters={FILTERS}
+        filter={filter}
+        onFilterChange={setFilter}
+        secondaryAction={
+          managed
+            ? undefined
+            : {
+                label: "Import URL",
+                onClick: () => setUrlOpen(true),
+              }
+        }
+        primaryAction={
+          managed
+            ? undefined
+            : { label: "Add pack", onClick: () => void onAddPack() }
+        }
+        note={
+          managed ? (
+            <ManagedBuildBanner />
+          ) : (
+            <p className="text-[11px] text-text-muted px-0.5">
+              Enabled packs write to options.txt (resourcePacks).{" "}
+              <button
+                type="button"
+                onClick={onOpenFolder}
+                className="underline underline-offset-2 hover:text-text-secondary cursor-pointer"
+              >
+                Open folder
+              </button>
+              {" · "}
+              <button
+                type="button"
+                onClick={() => void onAddDatapack()}
+                className="underline underline-offset-2 hover:text-text-secondary cursor-pointer"
+              >
+                Add datapack
+              </button>
+              {" · "}
+              <button
+                type="button"
+                onClick={() => setDatapackUrlOpen(true)}
+                className="underline underline-offset-2 hover:text-text-secondary cursor-pointer"
+              >
+                Datapack URL
+              </button>
+            </p>
+          )
+        }
+        empty={filtered.length === 0}
+        emptyLabel={scanning ? "Scanning packs…" : "No resource packs found"}
+      >
+        {filtered.map((p) => (
+          <PackRow key={p.id} item={p} locked={managed} onToggle={onToggle} />
+        ))}
+      </ContentListShell>
+      <ImportUrlModal
+        open={urlOpen}
+        title="Import resource pack from URL"
+        onClose={() => setUrlOpen(false)}
+        onSubmit={async (url) => {
+          await importContentFromUrl("resourcepacks", url);
+          toast.success("Resource pack imported");
+        }}
+      />
+      <ImportUrlModal
+        open={datapackUrlOpen}
+        title="Import datapack from URL"
+        onClose={() => setDatapackUrlOpen(false)}
+        onSubmit={async (url) => {
+          await importContentFromUrl("datapacks", url);
+          toast.success("Datapack imported");
+        }}
+      />
+    </>
   );
 }

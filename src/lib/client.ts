@@ -186,7 +186,7 @@ export async function waitForClient(
     } catch (e) {
       lastErr = e;
     }
-    await wait(400, config.signal);
+    await wait(200, config.signal);
   }
   throw new Error(
     lastErr instanceof Error

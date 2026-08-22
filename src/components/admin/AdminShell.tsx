@@ -1,46 +1,43 @@
 import { AnimatePresence, motion } from "framer-motion";
 import { useAdminRouteStore } from "../../stores/adminRoute";
 import { useAdminSessionStore } from "../../stores/adminSession";
-import { AdminNavRail } from "./AdminNavRail";
-import { AdminTopBar } from "./AdminTopBar";
-import { AdminOverview } from "./sections/AdminOverview";
-import { AdminChloePanel } from "./sections/AdminChloePanel";
-import { AdminCatalogExplorer } from "./sections/AdminCatalogExplorer";
-import { AdminCatalogPanel } from "./sections/AdminCatalogPanel";
-import { AdminWhoamiPanel } from "./sections/AdminWhoamiPanel";
-import { AdminAuthPanel } from "./sections/AdminAuthPanel";
-import { AdminUsersPanel } from "./sections/AdminUsersPanel";
-import { AdminAuditPanel } from "./sections/AdminAuditPanel";
-import { AdminSectionPanel } from "./sections/AdminSectionPanel";
-import { AdminSessionsPanel } from "./sections/AdminSessionsPanel";
-import { AdminNotificationsPanel } from "./sections/AdminNotificationsPanel";
-import { AdminMailPanel } from "./sections/AdminMailPanel";
-import { AdminGenericPanel } from "./sections/AdminGenericPanel";
+import type { AdminViewId } from "../../lib/adminNav";
+import { AdminOpsNav } from "./shell/AdminOpsNav";
+import { AdminOpsTopBar } from "./shell/AdminOpsTopBar";
+import { AdminAuditStreamDrawer } from "./shell/AdminAuditStreamDrawer";
+import { OverviewView } from "./views/OverviewView";
+import { UsersView } from "./views/UsersView";
+import { AuditView } from "./views/AuditView";
+import { CommunicationsView } from "./views/CommunicationsView";
+import { RateLimitsView } from "./views/RateLimitsView";
+import { ReportsView } from "./views/ReportsView";
+import { ChloeView } from "./views/ChloeView";
+import { HotfixesView } from "./views/HotfixesView";
+import { AuthView } from "./views/AuthView";
+import { InvitesView } from "./views/InvitesView";
+import { GuildsView } from "./views/GuildsView";
+import { SettingsView } from "./views/SettingsView";
 
 const pageMotion = {
-  initial: { opacity: 0, y: 8 },
+  initial: { opacity: 0, y: 6 },
   animate: { opacity: 1, y: 0 },
-  exit: { opacity: 0, y: -6 },
-  transition: { duration: 0.22, ease: [0.22, 1, 0.36, 1] as const },
+  exit: { opacity: 0, y: -4 },
+  transition: { duration: 0.18, ease: [0.22, 1, 0.36, 1] as const },
 };
 
-const SECTION_PANELS: Record<string, () => React.ReactNode> = {
-  overview: () => <AdminOverview />,
-  users: () => <AdminUsersPanel />,
-  sessions: () => <AdminSessionsPanel />,
-  audit: () => <AdminAuditPanel />,
-  notifications: () => <AdminNotificationsPanel />,
-  mail: () => <AdminMailPanel />,
-  "rate-limits": () => <AdminSectionPanel sectionId="rate-limits" />,
-  reports: () => <AdminSectionPanel sectionId="reports" />,
-  guilds: () => <AdminSectionPanel sectionId="guilds" />,
-  invites: () => <AdminSectionPanel sectionId="invites" />,
-  auth: () => <AdminAuthPanel />,
-  chloe: () => <AdminChloePanel />,
-  hotfixes: () => <AdminSectionPanel sectionId="hotfixes" />,
-  whoami: () => <AdminWhoamiPanel />,
-  catalog: () => <AdminCatalogPanel />,
-  explorer: () => <AdminCatalogExplorer />,
+const VIEWS: Record<AdminViewId, () => React.ReactNode> = {
+  overview: () => <OverviewView />,
+  users: () => <UsersView />,
+  audit: () => <AuditView />,
+  communications: () => <CommunicationsView />,
+  "rate-limits": () => <RateLimitsView />,
+  reports: () => <ReportsView />,
+  chloe: () => <ChloeView />,
+  hotfixes: () => <HotfixesView />,
+  auth: () => <AuthView />,
+  invites: () => <InvitesView />,
+  guilds: () => <GuildsView />,
+  settings: () => <SettingsView />,
 };
 
 type Props = {
@@ -48,42 +45,45 @@ type Props = {
   onStepUp: () => void;
 };
 
-function SectionContent({ section }: { section: string }) {
-  if (section.startsWith("dynamic:")) {
-    return <AdminGenericPanel sectionId={section} />;
-  }
-  const render = SECTION_PANELS[section];
-  return render ? render() : null;
-}
-
 export function AdminShell({ expiryLabel, onStepUp }: Props) {
   const activeSection = useAdminRouteStore((s) => s.activeSection);
   const setSection = useAdminRouteStore((s) => s.setSection);
-  const capabilityActive = useAdminSessionStore((s) => s.capabilityActive);
+  const streamOpen = useAdminRouteStore((s) => s.streamOpen);
   const loadingCatalog = useAdminSessionStore((s) => s.loadingCatalog);
   const loadCatalog = useAdminSessionStore((s) => s.loadCatalog);
 
+  const render = VIEWS[activeSection];
+
   return (
-    <div className="flex h-full min-h-0 flex-col">
-      <AdminTopBar
+    <div className="flex h-full min-h-0 flex-col bg-[#0a0b0c] text-[12px] leading-snug">
+      <AdminOpsTopBar
         expiryLabel={expiryLabel}
-        capabilityActive={capabilityActive}
-        activeSection={activeSection}
         onStepUp={onStepUp}
         onRefresh={() => void loadCatalog()}
         loadingCatalog={loadingCatalog}
       />
 
-      <div className="grid min-h-0 flex-1 grid-cols-1 lg:grid-cols-[210px_minmax(0,1fr)]">
-        <AdminNavRail activeSection={activeSection} onSelect={setSection} />
+      <div
+        className={
+          streamOpen
+            ? "grid min-h-0 flex-1 grid-cols-1 lg:grid-cols-[180px_minmax(0,1fr)_280px]"
+            : "grid min-h-0 flex-1 grid-cols-1 lg:grid-cols-[180px_minmax(0,1fr)]"
+        }
+      >
+        <AdminOpsNav
+          active={activeSection}
+          onSelect={(id) => setSection(id)}
+        />
 
-        <main className="min-h-0 min-w-0 overflow-y-auto scroll-hidden px-4 py-4 lg:px-6 lg:py-5">
+        <main className="min-h-0 min-w-0 overflow-y-auto scroll-hidden px-4 py-4 lg:px-5 lg:py-4">
           <AnimatePresence mode="wait">
             <motion.div key={activeSection} {...pageMotion}>
-              <SectionContent section={activeSection} />
+              {render ? render() : null}
             </motion.div>
           </AnimatePresence>
         </main>
+
+        {streamOpen ? <AdminAuditStreamDrawer /> : null}
       </div>
     </div>
   );

@@ -38,6 +38,7 @@ import {
   FolderOpenIcon,
   CopyIcon,
   Settings2Icon,
+  HeadphonesIcon,
 } from "lucide-react";
 import {
   DatabaseIcon,
@@ -99,5 +100,6 @@ export const AppIcons = {
   FolderOpen: FolderOpenIcon,
   Copy: CopyIcon,
   Settings2: Settings2Icon,
+  Voice: HeadphonesIcon,
   Discord: DiscordLogoIcon,
 };

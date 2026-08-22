@@ -4,6 +4,12 @@ import { Icon } from "../../ico";
 import { motion, useReducedMotion } from "framer-motion";
 import { HeaderTabs } from "../../../manifest";
 import { useProfileRouteStore } from "../../../stores/profileRoute";
+import { useGuildStore } from "../../../stores/guilds";
+import { homeBuildsSideItem } from "../../../lib/homeNav";
+import { useAdminSessionStore } from "../../../stores/adminSession";
+import { useAdminRouteStore } from "../../../stores/adminRoute";
+import { useServerAdminStore } from "../../../stores/serverAdmin";
+import { useMemo } from "react";
 
 function NavButton({
   label,
@@ -18,7 +24,9 @@ function NavButton({
   const icon =
     label === "Guilds"
       ? AppIcons.Crown
-      : (AppIcons[label as keyof typeof AppIcons] ?? AppIcons.Home);
+      : label === "Admin"
+        ? AppIcons.Security
+        : (AppIcons[label as keyof typeof AppIcons] ?? AppIcons.Home);
 
   return (
     <button
@@ -100,26 +108,45 @@ function HeaderNavigation() {
   const setPrimaryTab = useNavigationStore((s) => s.setPrimaryTab);
   const setSideItem = useNavigationStore((s) => s.setSideItem);
   const closeProfile = useProfileRouteStore((s) => s.closeProfile);
+  const isPlatformAdmin = useAdminSessionStore((s) => s.isPlatformAdmin);
+  const resetAdminRoute = useAdminRouteStore((s) => s.reset);
+  const closeServerAdmin = useServerAdminStore((s) => s.close);
+
+  const tabs = useMemo(() => {
+    if (isPlatformAdmin !== true) return HeaderTabs;
+    if (HeaderTabs.includes("Admin")) return HeaderTabs;
+    return [...HeaderTabs, "Admin" as PrimaryTab];
+  }, [isPlatformAdmin]);
 
   return (
     <nav
       aria-label="Primary navigation"
       className="cf-header-nav prime-pill flex flex-row items-center gap-0.5 px-1.5 py-1 rounded-full"
     >
-      {HeaderTabs.map((item) => (
+      {tabs.map((item) => (
         <NavButton
           key={item}
           label={item}
           isActive={primaryTab === item}
           onClick={() => {
             closeProfile();
+            if (primaryTab === "Admin" && item !== "Admin") {
+              resetAdminRoute();
+              closeServerAdmin();
+            }
             setPrimaryTab(item as PrimaryTab);
-            if (item === "Home") setSideItem("Home");
-            else if (item === "Builds") setSideItem("Builds");
-            else if (item === "Guilds") setSideItem("Guilds");
-            else if (item === "Mods") setSideItem("Library");
-            else if (item === "Servers") setSideItem("Browse");
-            else setSideItem("");
+            if (item === "Home") setSideItem(homeBuildsSideItem());
+            else if (item === "Guilds") {
+              setSideItem("Guilds");
+              useGuildStore.getState().setDiscoverOpen(false);
+              useGuildStore.getState().setHubTab("Overview");
+            } else if (item === "Mods") setSideItem("Library");
+            else if (item === "Servers") setSideItem("All");
+            else if (item === "Admin") {
+              resetAdminRoute();
+              closeServerAdmin();
+              setSideItem("Admin");
+            } else setSideItem("");
           }}
         />
       ))}

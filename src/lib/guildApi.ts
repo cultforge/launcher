@@ -9,6 +9,7 @@ import {
   invalidateApiCache,
   invalidateGuildCaches,
 } from "./apiCache";
+import { canonicalizeHostedAvatarUrl } from "./authProfile";
 
 export class GuildApiError extends Error {
   status: number;
@@ -252,6 +253,17 @@ export function membershipFromApiRecord(
     record.user?.handle_name?.trim() ||
     record.user?.username?.trim() ||
     record.user_id;
+  const profileId = (record.user?.user_id ?? record.user_id ?? "").trim();
+  const rawAvatar =
+    record.user?.avatar_url ??
+    (typeof (record as { avatar_url?: unknown }).avatar_url === "string"
+      ? (record as { avatar_url: string }).avatar_url
+      : null);
+  const avatarUrl = rawAvatar?.trim()
+    ? canonicalizeHostedAvatarUrl(profileId, rawAvatar.trim())
+    : profileId
+      ? `https://api.cultforge.com/v1/profile/${profileId}/avatar`
+      : null;
   return {
     id: record.id,
     userId: record.user_id,
@@ -260,6 +272,7 @@ export function membershipFromApiRecord(
     role,
     status: "online",
     contribution: 0,
+    avatarUrl,
   };
 }
 
@@ -351,6 +364,225 @@ export async function updateGuildDiscordSource(
     throw wrap("Could not save Discord widget source", err);
   }
 }
+
+const GUILD_BRANDING_URL_MAX = 500;
+const DEFAULT_GUILD_BANNER =
+  "linear-gradient(135deg,#1a1528_0%,#2d3a5c_35%,#1e2838_70%,#0f141c_100%)";
+
+export function guildHostedIconUrl(guildId: string): string {
+  return `https://guilds.cultforge.com/v1/guilds/${encodeURIComponent(guildId)}/icon`;
+}
+
+export function guildHostedBannerUrl(guildId: string): string {
+  return `https://guilds.cultforge.com/v1/guilds/${encodeURIComponent(guildId)}/banner`;
+}
+
+function normalizeOptionalHttpUrl(
+  value: string | null | undefined,
+  label: string,
+): string | null {
+  const trimmed = (value ?? "").trim();
+  if (!trimmed) return null;
+  if (!/^https?:\/\//i.test(trimmed)) {
+    throw new GuildApiError(`${label} must be an http(s) URL.`, 400);
+  }
+  if (trimmed.length > GUILD_BRANDING_URL_MAX) {
+    throw new GuildApiError(
+      `${label} must be at most ${GUILD_BRANDING_URL_MAX} characters.`,
+      400,
+    );
+  }
+  return trimmed;
+}
+
+export type GuildBrandingImageUpload = {
+  image_base64?: string;
+  image_url?: string;
+  content_type?: string;
+};
+
+function brandingUploadBody(
+  upload: GuildBrandingImageUpload,
+): Record<string, string> {
+  const b64 = (upload.image_base64 || "").trim();
+  const url = (upload.image_url || "").trim();
+  if (b64 && url) {
+    throw new GuildApiError("Send either image_base64 or image_url, not both", 400);
+  }
+  if (b64) {
+    const body: Record<string, string> = { image_base64: b64 };
+    if (upload.content_type) body.content_type = upload.content_type;
+    return body;
+  }
+  if (url) {
+    return { image_url: url };
+  }
+  throw new GuildApiError("image_base64 or image_url is required", 400);
+}
+
+/** POST /v1/guilds/{guild_id}/icon */
+export async function uploadGuildIcon(
+  guildId: string,
+  upload: GuildBrandingImageUpload,
+): Promise<void> {
+  try {
+    await sendMutate(
+      "guilds",
+      "upload_guild_icon",
+      {
+        guild_id: guildId,
+        ...brandingUploadBody(upload),
+      },
+      "POST",
+    );
+  } catch (err) {
+    throw wrap("Could not upload guild icon", err);
+  }
+}
+
+/** POST /v1/guilds/{guild_id}/banner */
+export async function uploadGuildBanner(
+  guildId: string,
+  upload: GuildBrandingImageUpload,
+): Promise<void> {
+  try {
+    await sendMutate(
+      "guilds",
+      "upload_guild_banner",
+      {
+        guild_id: guildId,
+        ...brandingUploadBody(upload),
+      },
+      "POST",
+    );
+  } catch (err) {
+    throw wrap("Could not upload guild banner", err);
+  }
+}
+
+/** PATCH /v1/guilds/{guild_id} — set or clear guild icon / banner URLs. */
+export async function updateGuildBranding(
+  guildId: string,
+  input: {
+    iconUrl?: string | null;
+    bannerUrl?: string | null;
+  },
+): Promise<{ iconUrl: string | null; bannerUrl: string | null }> {
+  const icon_url =
+    input.iconUrl === undefined
+      ? undefined
+      : normalizeOptionalHttpUrl(input.iconUrl, "Icon URL");
+  const banner_url =
+    input.bannerUrl === undefined
+      ? undefined
+      : normalizeOptionalHttpUrl(input.bannerUrl, "Banner URL");
+
+  const body: Record<string, unknown> = { guild_id: guildId };
+  if (icon_url !== undefined) body.icon_url = icon_url;
+  if (banner_url !== undefined) body.banner_url = banner_url;
+
+  if (icon_url === undefined && banner_url === undefined) {
+    throw new GuildApiError("Nothing to update for guild branding.", 400);
+  }
+
+  try {
+    await sendMutate("guilds", "update_guild", body, "PATCH");
+    await invalidateGuildCaches(guildId);
+    return {
+      iconUrl: icon_url === undefined ? null : icon_url,
+      bannerUrl: banner_url === undefined ? null : banner_url,
+    };
+  } catch (err) {
+    throw wrap("Could not save guild branding", err);
+  }
+}
+
+export type GuildBrandingDraft = {
+  /** External URL (optional if uploading bytes). */
+  url: string;
+  /** Staged local file for POST …/icon|banner. */
+  upload: GuildBrandingImageUpload | null;
+  /** Whether the user cleared the field (remove remote artwork). */
+  clear: boolean;
+};
+
+/**
+ * Apply icon/banner uploads and/or URL clears for an existing guild.
+ * Upload endpoints mirror build media (image_base64 or image_url).
+ */
+export async function applyGuildBranding(
+  guildId: string,
+  input: {
+    icon?: GuildBrandingDraft;
+    banner?: GuildBrandingDraft;
+  },
+): Promise<{
+  iconUrl?: string | null;
+  bannerUrl?: string | null;
+  iconChanged: boolean;
+  bannerChanged: boolean;
+}> {
+  let nextIcon: string | null | undefined;
+  let nextBanner: string | null | undefined;
+  let iconChanged = false;
+  let bannerChanged = false;
+  const patch: { iconUrl?: string | null; bannerUrl?: string | null } = {};
+
+  if (input.icon) {
+    const { upload, url, clear } = input.icon;
+    if (upload?.image_base64 || upload?.image_url) {
+      await uploadGuildIcon(guildId, upload);
+      nextIcon = guildHostedIconUrl(guildId);
+      iconChanged = true;
+    } else if (url.trim()) {
+      const normalized = normalizeOptionalHttpUrl(url, "Icon URL");
+      await uploadGuildIcon(guildId, { image_url: normalized! });
+      nextIcon = guildHostedIconUrl(guildId);
+      iconChanged = true;
+    } else if (clear) {
+      patch.iconUrl = null;
+      nextIcon = null;
+      iconChanged = true;
+    }
+  }
+
+  if (input.banner) {
+    const { upload, url, clear } = input.banner;
+    if (upload?.image_base64 || upload?.image_url) {
+      await uploadGuildBanner(guildId, upload);
+      nextBanner = guildHostedBannerUrl(guildId);
+      bannerChanged = true;
+    } else if (url.trim()) {
+      const normalized = normalizeOptionalHttpUrl(url, "Banner URL");
+      await uploadGuildBanner(guildId, { image_url: normalized! });
+      nextBanner = guildHostedBannerUrl(guildId);
+      bannerChanged = true;
+    } else if (clear) {
+      patch.bannerUrl = null;
+      nextBanner = null;
+      bannerChanged = true;
+    }
+  }
+
+  if (!iconChanged && !bannerChanged) {
+    throw new GuildApiError("Nothing to update for guild branding.", 400);
+  }
+
+  if (patch.iconUrl !== undefined || patch.bannerUrl !== undefined) {
+    await updateGuildBranding(guildId, patch);
+  } else {
+    await invalidateGuildCaches(guildId);
+  }
+
+  return {
+    iconUrl: nextIcon,
+    bannerUrl: nextBanner,
+    iconChanged,
+    bannerChanged,
+  };
+}
+
+export { DEFAULT_GUILD_BANNER };
 
 /** POST /v1/guilds/{guild_id}/leave — live leave (never cached). */
 export async function leaveGuildRemote(guildId: string): Promise<void> {

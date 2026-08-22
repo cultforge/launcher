@@ -197,6 +197,24 @@ body {
     isolation: isolate;
 }
 
+/* Custom titlebar drag — WebView2 needs app-region in addition to the Tauri attribute. */
+.cf-header[data-tauri-drag-region],
+.cf-header [data-tauri-drag-region] {
+    -webkit-app-region: drag;
+    app-region: drag;
+}
+
+.cf-header button,
+.cf-header a,
+.cf-header input,
+.cf-header textarea,
+.cf-header select,
+.cf-header [role="button"],
+.cf-header [data-no-drag] {
+    -webkit-app-region: no-drag;
+    app-region: no-drag;
+}
+
 /* Stack UI above the ambient video. Do not force `position` —
    that would override `fixed` overlays mounted as shell children. */
 .app-shell > * {
@@ -227,6 +245,15 @@ body {
     opacity: 0.26;
 }
 
+html.cf-visual-idle,
+html.cf-visual-idle * {
+    animation-play-state: paused !important;
+}
+
+html.cf-visual-idle .app-bg-video {
+    opacity: 0 !important;
+}
+
 .app-bg-veil {
     position: absolute;
     inset: 0;
@@ -235,6 +262,18 @@ body {
     background-image:
         radial-gradient(ellipse 85% 65% at 50% 38%, transparent 12%, rgba(0, 0, 0, 0.58) 100%),
         linear-gradient(180deg, rgba(4, 6, 12, 0.5) 0%, rgba(0, 0, 0, 0.28) 46%, rgba(0, 0, 0, 0.78) 100%);
+    transition: background-color 0.4s ease, opacity 0.4s ease;
+}
+
+.app-bg-layer[data-guild-quiet="true"] .app-bg-video.is-active {
+    opacity: 0.1;
+}
+
+.app-bg-layer[data-guild-quiet="true"] .app-bg-veil {
+    background-color: rgba(4, 6, 12, 0.88);
+    background-image:
+        radial-gradient(ellipse 90% 70% at 50% 40%, transparent 8%, rgba(0, 0, 0, 0.72) 100%),
+        linear-gradient(180deg, rgba(4, 6, 12, 0.72) 0%, rgba(0, 0, 0, 0.55) 50%, rgba(0, 0, 0, 0.92) 100%);
 }
 
 /* User-selectable launcher chrome. `current` intentionally has no overrides. */
@@ -1093,4 +1132,282 @@ body {
     .cf-chloe-magic-bar {
         animation: none;
     }
+}
+
+/* ── Guild home (welcome-screen navigation) ── */
+.guild-switcher {
+    padding: 0.375rem;
+    border-radius: 0.75rem;
+    border: 1px solid var(--color-border-subtle);
+    background: color-mix(in srgb, var(--color-bg-card) 80%, transparent);
+}
+
+.guild-home-scroll {
+    padding-right: 0.125rem;
+}
+
+.guild-hero {
+    overflow: visible;
+    box-shadow: 0 12px 32px rgba(0, 0, 0, 0.28);
+}
+
+.guild-nudge {
+    border: 1px solid color-mix(in srgb, var(--color-primary-base) 22%, transparent);
+    background: color-mix(in srgb, var(--color-primary-base) 6%, var(--color-bg-card));
+}
+
+.guild-nudge:hover {
+    background: color-mix(in srgb, var(--color-primary-base) 10%, var(--color-bg-card));
+}
+
+.guild-section-label {
+    font-family: var(--font-sora);
+    font-size: 0.75rem;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--color-text-muted);
+}
+
+.guild-surface-card {
+    border-radius: 0.75rem;
+    border: 1px solid color-mix(in srgb, white 8%, transparent);
+    background: color-mix(in srgb, var(--color-bg-card) 92%, transparent);
+    box-shadow: 0 6px 20px rgba(0, 0, 0, 0.16);
+}
+
+.guild-dest-card {
+    border-radius: 0.875rem;
+    border: 1px solid color-mix(in srgb, white 8%, transparent);
+    background: linear-gradient(
+        165deg,
+        color-mix(in srgb, var(--color-bg-elevated) 55%, transparent),
+        color-mix(in srgb, var(--color-bg-card) 96%, transparent)
+    );
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.14);
+}
+
+.guild-dest-card:hover {
+    border-color: color-mix(in srgb, var(--color-primary-base) 28%, transparent);
+    transform: translateY(-1px);
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.2);
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .guild-dest-card:hover {
+        transform: none;
+    }
+}
+
+.guild-place-header {
+    padding-bottom: 0.25rem;
+    border-bottom: 1px solid color-mix(in srgb, white 6%, transparent);
+}
+
+.guild-place-back {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.375rem;
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: var(--color-text-muted);
+    transition: color 0.15s ease;
+}
+
+.guild-place-back:hover {
+    color: var(--color-primary-base);
+}
+
+/* ── Guild manage (settings hub) ── */
+.guild-manage {
+    border: 1px solid color-mix(in srgb, white 8%, transparent);
+    background: linear-gradient(
+        180deg,
+        color-mix(in srgb, var(--color-bg-card) 94%, transparent),
+        color-mix(in srgb, var(--color-bg-app) 99%, transparent)
+    );
+    box-shadow: 0 12px 36px rgba(0, 0, 0, 0.22);
+}
+
+.guild-manage-topbar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    padding: 1.25rem 1.5rem;
+    border-bottom: 1px solid color-mix(in srgb, white 6%, transparent);
+}
+
+.guild-manage-body {
+    padding: 1.75rem 1.5rem 2rem;
+}
+
+.guild-manage-card {
+    border-radius: 0.875rem;
+    border: 1px solid color-mix(in srgb, white 8%, transparent);
+    background: color-mix(in srgb, var(--color-bg-elevated) 40%, var(--color-bg-card));
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.12);
+}
+
+.guild-manage-card:hover {
+    border-color: color-mix(in srgb, var(--color-primary-base) 26%, transparent);
+    transform: translateY(-1px);
+    box-shadow: 0 8px 22px rgba(0, 0, 0, 0.18);
+}
+
+.guild-manage-section-header {
+    padding-bottom: 0.5rem;
+}
+
+.guild-manage-section-content {
+    padding-top: 0.25rem;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .guild-manage-card:hover {
+        transform: none;
+    }
+}
+
+/* ── Full-screen editor ── */
+.cf-fullscreen-header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 1rem;
+    padding: 1.25rem 1.5rem;
+    border-bottom: 1px solid color-mix(in srgb, white 8%, transparent);
+    background: color-mix(in srgb, var(--color-bg-card) 90%, transparent);
+}
+
+/* ── Guild hall (social home) ── */
+.guild-hall {
+    border-radius: 1rem;
+    border: 1px solid color-mix(in srgb, var(--color-primary-base) 14%, transparent);
+    background: linear-gradient(
+        165deg,
+        color-mix(in srgb, var(--color-bg-card) 96%, transparent) 0%,
+        color-mix(in srgb, var(--color-bg-app) 99%, transparent) 100%
+    );
+    box-shadow:
+        0 0 0 1px color-mix(in srgb, white 4%, transparent) inset,
+        0 16px 40px rgba(0, 0, 0, 0.2);
+    padding: 1.25rem 1.25rem 1rem;
+}
+
+@media (min-width: 640px) {
+    .guild-hall {
+        padding: 1.5rem 1.5rem 1.25rem;
+    }
+}
+
+.guild-hall-label {
+    font-size: 0.6875rem;
+    font-weight: 600;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: color-mix(in srgb, var(--color-primary-base) 55%, var(--color-text-muted));
+}
+
+.guild-hall-divider {
+    height: 1px;
+    margin: 1.25rem 0;
+    background: linear-gradient(
+        90deg,
+        transparent,
+        color-mix(in srgb, var(--color-primary-base) 12%, transparent) 20%,
+        color-mix(in srgb, var(--color-primary-base) 12%, transparent) 80%,
+        transparent
+    );
+}
+
+.guild-hall-avatar {
+    background: color-mix(in srgb, var(--color-primary-base) 10%, var(--color-bg-elevated));
+    color: var(--color-text-secondary);
+}
+
+.guild-hall-avatar--live {
+    box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-primary-base) 55%, transparent);
+}
+
+.guild-hall-avatar--idle {
+    opacity: 0.85;
+}
+
+.guild-hall-door {
+    border: 1px solid color-mix(in srgb, var(--color-primary-base) 12%, transparent);
+    transition: border-color 0.2s ease, transform 0.2s ease;
+}
+
+.guild-hall-door:hover {
+    border-color: color-mix(in srgb, var(--color-primary-base) 32%, transparent);
+    transform: translateY(-1px);
+}
+
+.guild-hall-door-bg {
+    background: linear-gradient(
+        145deg,
+        color-mix(in srgb, var(--color-primary-base) 8%, var(--color-bg-card)),
+        color-mix(in srgb, var(--color-bg-elevated) 90%, transparent)
+    );
+}
+
+.guild-hall-door-icon {
+    color: var(--color-primary-base);
+}
+
+.guild-hall-door-icon svg {
+    fill: currentColor;
+    color: currentColor;
+}
+
+.guild-hall-corner:hover {
+    background: color-mix(in srgb, var(--color-primary-base) 6%, transparent);
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .guild-hall-door:hover {
+        transform: none;
+    }
+}
+
+/* ── Build editor (full-screen) ── */
+.build-editor-nav {
+    padding-top: 0.25rem;
+}
+
+.build-picker-grid {
+    min-height: min(420px, calc(100vh - 280px));
+}
+
+.build-picker-browse,
+.build-picker-basket {
+    min-height: 240px;
+}
+
+@media (min-width: 1024px) {
+    .build-picker-grid {
+        min-height: min(480px, calc(100vh - 260px));
+    }
+}
+
+.build-search-row:focus-visible {
+    outline: 2px solid color-mix(in srgb, var(--color-primary-base) 45%, transparent);
+    outline-offset: -2px;
+}
+
+.build-editor-preview {
+    padding-top: 0.25rem;
+}
+
+/* ── Guild modals (shared with build editor) ── */
+.guild-modal-form {
+    width: 100%;
+}
+
+.guild-preview-overlay .cf-fullscreen-header,
+.guild-preview-overlay .cf-fullscreen-footer {
+    padding-left: 1.5rem;
+    padding-right: 1.5rem;
 }

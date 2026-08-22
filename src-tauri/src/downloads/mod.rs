@@ -132,6 +132,7 @@ async fn run_install_job(app: AppHandle, plan: ModrinthInstallPlan) {
                 );
             },
             &cancel_rx,
+            None,
         )
         .await;
 
@@ -452,8 +453,15 @@ pub async fn check_guild_manifest_sync(
     build_location: String,
     files: Vec<GuildManifestSyncFile>,
     excludes: Vec<String>,
+    sync_mode: Option<String>,
 ) -> Result<GuildSyncCheckResult, String> {
-    guild_sync::check_sync(&build_location, &files, &excludes).await
+    let mode = sync_mode.unwrap_or_else(|| "full".into());
+    guild_sync::check_sync(&build_location, &files, &excludes, &mode).await
+}
+
+#[tauri::command]
+pub async fn mark_guild_instance_synced(plan: GuildManifestSyncPlan) -> Result<(), String> {
+    guild_sync::persist_managed_meta(&plan, "synced").await
 }
 
 #[tauri::command]

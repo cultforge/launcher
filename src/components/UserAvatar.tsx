@@ -42,7 +42,17 @@ export async function resolveAvatarDisplayUrl(
     }
     const origin = await getClientOrigin();
     const v = cacheBust ?? Date.now();
-    return appendLoopbackQuery(`${origin}/media/avatar/${userId}?v=${v}`);
+    // Keep slash-ids path-style for the sidecar :path route.
+    return appendLoopbackQuery(
+      `${origin}/media/avatar/${userId.split("/").map(encodeURIComponent).join("/")}?v=${v}`,
+    );
+  }
+
+  // Already a sidecar proxy URL from OAuth callback — keep as-is (add bust).
+  if (/\/media\/avatar\//i.test(trimmed)) {
+    if (cacheBust == null) return trimmed;
+    const sep = trimmed.includes("?") ? "&" : "?";
+    return `${trimmed}${sep}v=${encodeURIComponent(String(cacheBust))}`;
   }
 
   return trimmed;

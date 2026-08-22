@@ -5,7 +5,7 @@ const resolvedUrlCache = new Map<string, string>();
 
 /**
  * Rewrite CultForge-hosted guild media URLs through the local sidecar proxy.
- * Covers icons, banners, news/event covers, and inline markdown media.
+ * Covers icons, banners, news/event covers, build/server media, and inline markdown media.
  *
  * URLs are stable (no Date.now cache-bust) so the browser + sidecar disk
  * cache can reuse icon/banner bytes across navigation.

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, type MouseEvent as ReactMouseEvent } from "react";
 import { AppIcons } from "./icons";
 import { Icon } from "./ico";
 import { BadgeButton, HeaderNavigation } from "./frags/app-header/index";
@@ -16,6 +16,25 @@ import { UserAvatar } from "./UserAvatar";
 import { Sparkles } from "lucide-react";
 
 const appWindow = getCurrentWindow();
+
+function isNoDragTarget(target: EventTarget | null): boolean {
+  if (!(target instanceof Element)) return false;
+  return Boolean(
+    target.closest(
+      "button, a, input, textarea, select, [role='button'], [data-no-drag]",
+    ),
+  );
+}
+
+async function startWindowDrag(event: ReactMouseEvent) {
+  if (event.button !== 0) return;
+  if (isNoDragTarget(event.target)) return;
+  try {
+    await appWindow.startDragging();
+  } catch {
+    // Browser / non-desktop preview — ignore.
+  }
+}
 
 function Header() {
   const [alertsOpen, setAlertsOpen] = useState(false);
@@ -47,6 +66,7 @@ function Header() {
     <header
       data-tauri-drag-region
       data-header-variant={headerVariant}
+      onMouseDown={startWindowDrag}
       className="cf-header main_app_title_bar cf-glass grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-2 h-16 px-3 select-none w-full shrink-0 z-40 border-b border-white/8 overflow-hidden"
     >
       <div className="pointer-events-none absolute inset-x-0 top-0 h-px bg-linear-to-r from-transparent via-white/20 to-transparent" />
@@ -55,9 +75,10 @@ function Header() {
       <div
         className="cf-header-brand flex items-center gap-2.5 shrink-0 justify-self-start"
         data-tauri-drag-region
+        onMouseDown={startWindowDrag}
       >
-        <ThemeLogo className="h-9 w-9 shrink-0" />
-        <div className="flex flex-col gap-0.5 leading-none">
+        <ThemeLogo className="h-9 w-9 shrink-0 pointer-events-none" />
+        <div className="flex flex-col gap-0.5 leading-none pointer-events-none">
           <h1 className="font-sora font-extrabold uppercase tracking-[0.06em] text-white whitespace-nowrap">
             <span className="text-[16px]">Cult</span>
             <span className="text-[16px] text-primary-base">Forge</span>
@@ -68,13 +89,20 @@ function Header() {
         </div>
       </div>
 
-      <div className="cf-header-nav-slot min-w-0 w-full flex justify-center overflow-hidden px-1">
-        <div className="max-w-full overflow-x-auto scrollbar-none">
+      <div
+        className="cf-header-nav-slot min-w-0 w-full flex justify-center overflow-hidden px-1"
+        data-tauri-drag-region
+        onMouseDown={startWindowDrag}
+      >
+        <div className="max-w-full overflow-x-auto scrollbar-none" data-no-drag>
           <HeaderNavigation />
         </div>
       </div>
 
-      <div className="cf-header-right flex items-center gap-1.5 justify-self-end shrink-0">
+      <div
+        className="cf-header-right flex items-center gap-1.5 justify-self-end shrink-0"
+        data-no-drag
+      >
         <div className="cf-header-utilities prime-pill flex items-center gap-0.5 px-1 py-1 rounded-full shrink-0">
           <BadgeButton
             icon="Download"
@@ -121,7 +149,7 @@ function Header() {
             <Icon icon={AppIcons.Notifications} size={16} />
             {unread > 0 && (
               <span className="absolute -top-0.5 -right-0.5 min-w-3.5 h-3.5 px-0.5 rounded-full bg-primary-base text-[8px] font-bold text-bg-app flex items-center justify-center">
-                {unread}
+                {unread > 9 ? "9+" : unread}
               </span>
             )}
           </button>

@@ -9,17 +9,20 @@ import {
   GUILD_BUILD_IMAGE_URL_MAX,
   type GuildBuildImageUpload,
 } from "../../../lib/guildBuildApi";
+import {
+  checkFixedResolution,
+  loadImageDimensions,
+  type ImageResKind,
+} from "../../../lib/imageResolution";
 
 const fieldClass =
   "h-9 w-full rounded-lg border border-border-subtle bg-black/25 px-3 text-[12px] text-text-primary outline-none focus:border-primary-base/45";
 
 export type BuildImageDraft = {
-  /** External http(s) URL — mutually exclusive with pending upload. */
   url: string;
-  /** Local file staged for POST …/icon|cover as image_base64. */
   upload: GuildBuildImageUpload | null;
-  /** data: URL or http URL for preview. */
   preview: string;
+  ignoreResolution?: boolean;
 };
 
 type Kind = "icon" | "cover";
@@ -30,6 +33,9 @@ type Props = {
   value: BuildImageDraft;
   onChange: (next: BuildImageDraft) => void;
   existingHint?: string | null;
+  stagedHint?: string;
+  /** banner = 1920×480; default icon→512², cover→1920×1080 */
+  resolutionKind?: ImageResKind;
 };
 
 function readFileAsDataUrl(file: File): Promise<string> {
@@ -56,7 +62,7 @@ export function emptyBuildImageDraft(existingUrl?: string | null): BuildImageDra
     typeof existingUrl === "string" && /^https?:\/\//i.test(existingUrl)
       ? existingUrl
       : "";
-  return { url, upload: null, preview: url };
+  return { url, upload: null, preview: url, ignoreResolution: false };
 }
 
 export function buildImageIsReady(
@@ -77,12 +83,53 @@ export function BuildImageField({
   value,
   onChange,
   existingHint,
+  stagedHint,
+  resolutionKind,
 }: Props) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [busy, setBusy] = useState(false);
+  const [dimHint, setDimHint] = useState<string | null>(null);
   const maxBytes =
     kind === "icon" ? GUILD_BUILD_ICON_MAX_BYTES : GUILD_BUILD_COVER_MAX_BYTES;
   const maxLabel = kind === "icon" ? "1 MiB" : "4 MiB";
+  const resKind: ImageResKind =
+    resolutionKind ?? (kind === "icon" ? "icon" : "cover");
+  const resLabel =
+    resKind === "icon"
+      ? "512×512"
+      : resKind === "banner"
+        ? "1920×480"
+        : "1920×1080";
+
+  const evaluateDims = async (
+    preview: string,
+    ignore: boolean,
+  ): Promise<boolean> => {
+    try {
+      const dims = await loadImageDimensions(preview);
+      const check = checkFixedResolution(resKind, dims.width, dims.height);
+      setDimHint(
+        check.ok
+          ? `${dims.width}×${dims.height} ✓`
+          : `${dims.width}×${dims.height} — expected ${resLabel}`,
+      );
+      if (!check.ok && !ignore) {
+        toast.error(check.message ?? "Wrong image resolution", {
+          description: "Enable Ignore resolution to bypass.",
+        });
+        return false;
+      }
+      if (!check.ok && ignore) {
+        toast.message("Resolution check bypassed", {
+          description: `${dims.width}×${dims.height} (expected ${resLabel})`,
+        });
+      }
+      return true;
+    } catch {
+      setDimHint(null);
+      return true;
+    }
+  };
 
   const pickFile = async (file: File) => {
     const mime = inferMime(file);
@@ -97,6 +144,8 @@ export function BuildImageField({
     setBusy(true);
     try {
       const dataUrl = await readFileAsDataUrl(file);
+      const ok = await evaluateDims(dataUrl, Boolean(value.ignoreResolution));
+      if (!ok) return;
       const { base64, contentType } = toRawAvatarBase64(dataUrl);
       onChange({
         url: "",
@@ -105,6 +154,7 @@ export function BuildImageField({
           image_base64: base64,
           content_type: contentType || mime,
         },
+        ignoreResolution: value.ignoreResolution,
       });
     } catch {
       toast.error("Could not read that image file");
@@ -121,14 +171,17 @@ export function BuildImageField({
           {label}
         </span>
         <span className="text-[9px] text-text-disabled">
-          Link or upload · PNG/JPEG/WebP · max {maxLabel}
+          {resLabel} · PNG/JPEG/WebP · max {maxLabel}
         </span>
       </div>
 
       <div className="flex items-center gap-2.5">
-        {kind === "cover" ? (
+        {kind === "cover" || resKind === "banner" ? (
           <div
-            className="h-14 w-24 shrink-0 rounded-md bg-cover bg-center bg-bg-elevated border border-border-subtle"
+            className={cn(
+              "shrink-0 rounded-md bg-cover bg-center bg-bg-elevated border border-border-subtle",
+              resKind === "banner" ? "h-12 w-40" : "h-14 w-24",
+            )}
             style={
               value.preview
                 ? { backgroundImage: `url(${value.preview})` }
@@ -149,18 +202,25 @@ export function BuildImageField({
             value={value.url}
             onChange={(e) => {
               const url = e.target.value;
+              const preview = /^https?:\/\//i.test(url.trim()) ? url.trim() : "";
               onChange({
                 url,
                 upload: null,
-                preview: /^https?:\/\//i.test(url.trim()) ? url.trim() : "",
+                preview,
+                ignoreResolution: value.ignoreResolution,
               });
+              if (preview) {
+                void evaluateDims(preview, true).then(() => undefined);
+              } else {
+                setDimHint(null);
+              }
             }}
             className={fieldClass}
             placeholder="https://… image URL"
             maxLength={GUILD_BUILD_IMAGE_URL_MAX}
             disabled={busy}
           />
-          <div className="flex flex-wrap gap-1.5">
+          <div className="flex flex-wrap gap-1.5 items-center">
             <input
               ref={inputRef}
               type="file"
@@ -176,9 +236,7 @@ export function BuildImageField({
               type="button"
               disabled={busy}
               onClick={() => inputRef.current?.click()}
-              className={cn(
-                "rounded-md border border-primary-base/35 bg-primary-base/10 px-2.5 py-1.5 text-[10px] font-semibold text-primary-base cursor-pointer disabled:opacity-50",
-              )}
+              className="rounded-md border border-primary-base/35 bg-primary-base/10 px-2.5 py-1.5 text-[10px] font-semibold text-primary-base cursor-pointer disabled:opacity-50"
             >
               {busy ? "Reading…" : value.upload ? "Replace file" : "Upload file"}
             </button>
@@ -186,16 +244,51 @@ export function BuildImageField({
               <button
                 type="button"
                 disabled={busy}
-                onClick={() => onChange({ url: "", upload: null, preview: "" })}
+                onClick={() => {
+                  setDimHint(null);
+                  onChange({
+                    url: "",
+                    upload: null,
+                    preview: "",
+                    ignoreResolution: value.ignoreResolution,
+                  });
+                }}
                 className="rounded-md border border-border-subtle px-2.5 py-1.5 text-[10px] text-text-muted cursor-pointer disabled:opacity-50"
               >
                 Clear
               </button>
             )}
+            <label className="ml-auto flex items-center gap-1.5 text-[10px] text-text-muted cursor-pointer">
+              <input
+                type="checkbox"
+                checked={Boolean(value.ignoreResolution)}
+                onChange={(e) =>
+                  onChange({
+                    ...value,
+                    ignoreResolution: e.target.checked,
+                  })
+                }
+                className="accent-primary-base"
+              />
+              Ignore resolution
+            </label>
           </div>
+          {dimHint ? (
+            <p
+              className={cn(
+                "text-[9px]",
+                dimHint.includes("✓")
+                  ? "text-primary-base"
+                  : "text-state-warning",
+              )}
+            >
+              {dimHint}
+            </p>
+          ) : null}
           {value.upload ? (
             <p className="text-[9px] text-primary-base">
-              File staged — uploads after the build is saved (base64 JSON).
+              {stagedHint ??
+                "File staged — uploads after the build is saved (base64 JSON)."}
             </p>
           ) : existingHint && !value.url ? (
             <p className="text-[9px] text-text-disabled truncate">

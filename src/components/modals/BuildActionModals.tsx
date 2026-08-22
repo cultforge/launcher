@@ -7,7 +7,7 @@ import {
 } from "../../stores/buildModals";
 import { useBuildStore, type BuildConfig } from "../../stores/build";
 import { useBuildUiStore } from "../../stores/buildUi";
-import { useNavigationStore } from "../../typlibs";
+import { goHomeBuilds } from "../../lib/homeNav";
 import { cn } from "../../lib/cn";
 import {
   ensureBuildInstance,
@@ -156,7 +156,6 @@ function SettingsModal({
   const active = useBuildStore((s) => s.active());
   const setConfig = useBuildStore((s) => s.setConfig);
   const setActiveTab = useBuildUiStore((s) => s.setActiveTab);
-  const setPrimaryTab = useNavigationStore((s) => s.setPrimaryTab);
   const [draft, setDraft] = useState<BuildConfig>(active.config);
   const [category, setCategory] = useState<"runtime" | "game" | "advanced">(
     "runtime",
@@ -197,7 +196,7 @@ function SettingsModal({
   };
 
   const openConfigTab = () => {
-    setPrimaryTab("Builds");
+    goHomeBuilds();
     setActiveTab("Configuration");
     onClose();
   };
@@ -889,9 +888,6 @@ function AddModal({
   open: boolean;
   onClose: () => void;
 }) {
-  const setPrimaryTab = useNavigationStore((s) => s.setPrimaryTab);
-  const setSideItem = useNavigationStore((s) => s.setSideItem);
-
   return (
     <ModalShell open={open} onClose={onClose} title="Add Minecraft version">
       <p className="text-[12px] text-text-secondary leading-relaxed">
@@ -908,8 +904,7 @@ function AddModal({
         <button
           type="button"
           onClick={() => {
-            setPrimaryTab("Builds");
-            setSideItem("Builds");
+            goHomeBuilds();
             onClose();
           }}
           className="cf-btn-primary rounded-lg px-4 py-2 text-[11px] font-semibold cursor-pointer"

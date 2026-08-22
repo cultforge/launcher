@@ -6,7 +6,7 @@ import {
 import { useGuildModalsStore } from "../../stores/guildModals";
 import { useGuildStore } from "../../stores/guilds";
 import { useAppStore } from "../../userstore";
-import { GuildSwitcher } from "./GuildSwitcher";
+import { GuildIcon } from "../GuildIcon";
 
 export function GuildIdentityBar() {
   const guildId = useGuildStore((state) => state.activeGuildId);
@@ -18,32 +18,30 @@ export function GuildIdentityBar() {
   const membership = membershipForUser(members, guildId, userId);
   const capabilities = capabilitiesForRole(membership?.role);
 
+  if (!guild) return null;
+
   return (
-    <div className="flex h-14 shrink-0 items-center gap-3 border-b border-white/8 bg-black/35 px-1">
+    <div className="cf-guild-identity">
+      <GuildIcon
+        src={guild.icon}
+        name={guild.name}
+        className={`h-10 w-10 shrink-0 rounded-xl bg-linear-to-br text-bg-app text-[11px] ring-1 ring-white/15 ${guild.accent}`}
+      />
       <div className="min-w-0 flex-1">
-        <GuildSwitcher embedded />
-      </div>
-      <div className="hidden min-w-0 shrink sm:block">
-        <div className="truncate font-sora text-[13px] font-bold text-text-primary">
-          {guild ? (
-            <>
-              {guild.name}{" "}
-              <span className="font-normal text-text-muted">[{guild.tag}]</span>
-            </>
-          ) : (
-            "No guild selected"
-          )}
+        <div className="truncate font-sora text-[15px] font-bold text-text-primary">
+          {guild.name}
+          <span className="ml-1.5 font-normal text-text-muted">[{guild.tag}]</span>
         </div>
-        <div className="text-[9px] uppercase tracking-wider text-text-muted">
-          {membership?.role ?? "Guest"}
-        </div>
+        <p className="text-[11px] text-text-muted">
+          {membership?.role ?? "Member"}
+        </p>
       </div>
       <div className="flex shrink-0 items-center gap-2">
         {capabilities.inviteMembers && (
           <button
             type="button"
             onClick={() => open("invite")}
-            className="rounded-lg border border-border-subtle px-2.5 py-1.5 text-[10px] text-text-secondary cursor-pointer"
+            className="rounded-lg border border-white/10 px-3 py-1.5 text-[11px] font-medium text-text-secondary cursor-pointer hover:bg-white/4"
           >
             Invite
           </button>
@@ -52,9 +50,9 @@ export function GuildIdentityBar() {
           <button
             type="button"
             onClick={() => setHubTab("Manage")}
-            className="cf-btn-primary rounded-lg px-2.5 py-1.5 text-[10px] font-semibold cursor-pointer"
+            className="rounded-lg border border-white/10 px-3 py-1.5 text-[11px] font-medium text-text-secondary cursor-pointer hover:bg-white/4"
           >
-            Manage
+            Settings
           </button>
         )}
       </div>

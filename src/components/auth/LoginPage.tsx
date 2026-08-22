@@ -492,7 +492,7 @@ function LoginCard() {
         </div>
       ) : null}
 
-      {authError ? (
+      {authError && authStatus !== "authenticating" ? (
         <p className="mt-4 text-sm text-state-error text-center" role="alert">
           {authError}
         </p>

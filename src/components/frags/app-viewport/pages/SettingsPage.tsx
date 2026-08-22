@@ -23,6 +23,8 @@ import {
   type JavaRuntimeInfo,
 } from "../../../../lib/javaRuntime";
 import { CfSelect } from "../../../ui/CfSelect";
+import { LicensesPanel } from "../../../settings/LicensesPanel";
+import type { GuildUiPreferences } from "../../../../lib/guildUi";
 
 const CATEGORIES: {
   id: SettingsCategory;
@@ -58,6 +60,12 @@ const CATEGORIES: {
     id: "paths",
     label: "Paths & Java",
     description: "Downloads and runtime defaults",
+    icon: AppIcons.FolderOpen,
+  },
+  {
+    id: "licenses",
+    label: "Licenses",
+    description: "EULA, terms, and open-source notices",
     icon: AppIcons.FolderOpen,
   },
 ];
@@ -206,6 +214,43 @@ function FieldLabel({ children }: { children: string }) {
     <label className="text-[9px] font-semibold uppercase tracking-[0.14em] text-text-muted">
       {children}
     </label>
+  );
+}
+
+function GuildUiPreferencesPanel({
+  value,
+  onChange,
+}: {
+  value: GuildUiPreferences;
+  onChange: (patch: Partial<GuildUiPreferences>) => void;
+}) {
+  return (
+    <div className="rounded-xl border border-white/[0.07] bg-black/20 p-3 flex flex-col gap-1 divide-y divide-white/6">
+      <div className="pb-3">
+        <FieldLabel>Guild pages</FieldLabel>
+        <p className="mt-1 text-[10px] text-text-disabled leading-relaxed">
+          Adjust card density and optional tabs. Navigation stays the same.
+        </p>
+      </div>
+      <ToggleRow
+        label="Compact guild cards"
+        description="Tighter padding on guild overview panels"
+        checked={value.compactCards}
+        onChange={(compactCards) => onChange({ compactCards })}
+      />
+      <ToggleRow
+        label="Show Rankings tab"
+        description="XP leaderboard tab in the guild hub"
+        checked={value.showRankingsTab}
+        onChange={(showRankingsTab) => onChange({ showRankingsTab })}
+      />
+      <ToggleRow
+        label="Show Discord tab"
+        description="Discord widget tab in the guild hub"
+        checked={value.showDiscordTab}
+        onChange={(showDiscordTab) => onChange({ showDiscordTab })}
+      />
+    </div>
   );
 }
 
@@ -374,7 +419,22 @@ export default function SettingsPage() {
           id={`settings-${category}`}
           className="cf-panel rounded-xl p-4 min-h-90 flex flex-col gap-4"
         >
-          {category === "appearance" && <ThemeManager />}
+          {category === "appearance" && (
+            <>
+              <ThemeManager />
+              <GuildUiPreferencesPanel
+                value={settings.guildUiPreferences}
+                onChange={(patch) =>
+                  setDraft({
+                    guildUiPreferences: {
+                      ...settings.guildUiPreferences,
+                      ...patch,
+                    },
+                  })
+                }
+              />
+            </>
+          )}
 
           {category === "general" && (
             <>
@@ -522,10 +582,12 @@ export default function SettingsPage() {
               </button>
             </>
           )}
+
+          {category === "licenses" && <LicensesPanel />}
         </section>
       </div>
 
-      {category !== "appearance" && (
+      {category !== "appearance" && category !== "licenses" && (
         <div className="cf-panel sticky bottom-2 flex items-center justify-end gap-2 rounded-xl px-3 py-2.5">
           <span className="mr-auto text-[10px] text-text-muted">
             {dirty

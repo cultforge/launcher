@@ -103,6 +103,10 @@ export type GuildManifestSyncPlan = {
   excludes: string[];
   files: GuildManifestSyncFile[];
   manifestJson: string;
+  /** `play` = level-1 mods+resourcepacks; `full` = full reconcile. */
+  syncMode?: "play" | "full";
+  /** When set, skip re-hash and only fetch these paths (empty = prune only). */
+  onlyPaths?: string[] | null;
 };
 
 export type GuildSyncCheckResult = {
@@ -188,6 +192,7 @@ export async function checkGuildManifestSync(
   buildLocation: string,
   files: GuildManifestSyncFile[],
   excludes: string[] = [],
+  syncMode: "play" | "full" = "full",
 ): Promise<GuildSyncCheckResult> {
   if (!isTauri()) {
     return { synced: false, missing: [], mismatched: [], extras: [] };
@@ -196,7 +201,15 @@ export async function checkGuildManifestSync(
     buildLocation,
     files,
     excludes,
+    syncMode,
   });
+}
+
+export async function markGuildInstanceSynced(
+  plan: GuildManifestSyncPlan,
+): Promise<void> {
+  if (!isTauri()) return;
+  await invoke("mark_guild_instance_synced", { plan });
 }
 
 export async function startGuildManifestSync(

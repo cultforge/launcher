@@ -4,6 +4,8 @@ import {
 } from "../typlibs";
 import { useGuildStore } from "../stores/guilds";
 import { useProfileRouteStore } from "../stores/profileRoute";
+import { parseAgentLinkCode } from "./agentLink";
+import { goHomeBuilds, HOME_BUILDS_SIDE } from "./homeNav";
 
 export type CultforgeDeepLink =
   | { kind: "guild"; guildId: string }
@@ -12,7 +14,8 @@ export type CultforgeDeepLink =
   | { kind: "guild-channel"; guildId: string; channelId: string }
   | { kind: "dm"; userId: string }
   | { kind: "profile"; userId: string }
-  | { kind: "launcher"; target: string; section?: string };
+  | { kind: "launcher"; target: string; section?: string }
+  | { kind: "agent-link"; code: string };
 
 /** Parse cultforge://nav/... URIs used in rich news/events markdown. */
 export function parseCultforgeDeepLink(
@@ -20,6 +23,16 @@ export function parseCultforgeDeepLink(
 ): CultforgeDeepLink | null {
   if (!href) return null;
   const raw = href.trim();
+
+  const agentCode = parseAgentLinkCode(raw);
+  if (
+    agentCode &&
+    (/agent\/link/i.test(raw) ||
+      raw.toLowerCase().startsWith("cultforge://agent"))
+  ) {
+    return { kind: "agent-link", code: agentCode };
+  }
+
   if (!raw.toLowerCase().startsWith("cultforge://")) return null;
 
   let path = raw.slice("cultforge://".length);
@@ -49,6 +62,7 @@ export function parseCultforgeDeepLink(
       "friends",
       "discover",
       "updates",
+      "agents",
     ].includes(launcherTarget)
   ) {
     return {
@@ -96,6 +110,7 @@ export function navigateCultforgeDeepLink(href: string): boolean {
     case "guild":
       guilds.setActiveGuild(link.guildId);
       guilds.setHubTab("Overview");
+      guilds.setDiscoverOpen(false);
       guilds.clearContentFocus();
       nav.setPrimaryTab("Guilds" as PrimaryTab);
       nav.setSideItem("Guilds");
@@ -103,6 +118,7 @@ export function navigateCultforgeDeepLink(href: string): boolean {
     case "guild-news":
       guilds.setActiveGuild(link.guildId);
       guilds.setHubTab("News");
+      guilds.setDiscoverOpen(false);
       guilds.focusNews(link.newsId);
       nav.setPrimaryTab("Guilds" as PrimaryTab);
       nav.setSideItem("Guilds");
@@ -110,6 +126,7 @@ export function navigateCultforgeDeepLink(href: string): boolean {
     case "guild-events":
       guilds.setActiveGuild(link.guildId);
       guilds.setHubTab("Events");
+      guilds.setDiscoverOpen(false);
       guilds.focusEvent(link.eventId);
       nav.setPrimaryTab("Guilds" as PrimaryTab);
       nav.setSideItem("Guilds");
@@ -118,9 +135,15 @@ export function navigateCultforgeDeepLink(href: string): boolean {
       guilds.setActiveGuild(link.guildId);
       guilds.setActiveChannel(link.guildId, link.channelId);
       guilds.setHubTab("Chat");
+      guilds.setDiscoverOpen(false);
       guilds.clearContentFocus();
       nav.setPrimaryTab("Guilds" as PrimaryTab);
       nav.setSideItem("Guilds");
+      return true;
+    case "agent-link":
+      void import("../stores/agentControl").then(({ useAgentControlStore }) => {
+        useAgentControlStore.getState().openAgentLinkHelp(link.code);
+      });
       return true;
     case "dm":
       void import("../stores/dm").then(({ useDmStore }) => {
@@ -158,18 +181,23 @@ export function navigateCultforgeDeepLink(href: string): boolean {
       if (target === "discord" || target === "downloads" || target === "friends" || target === "discover" || target === "updates" || target === "home") {
         nav.setPrimaryTab("Home" as PrimaryTab);
         nav.setSideItem(
-          target === "home"
-            ? "Home"
+          target === "home" || target === "builds"
+            ? HOME_BUILDS_SIDE
             : target.charAt(0).toUpperCase() + target.slice(1),
         );
+        return true;
+      }
+      if (target === "agents") {
+        nav.setPrimaryTab("Servers" as PrimaryTab);
+        nav.setSideItem("My PCs");
         return true;
       }
       if (target === "store") {
         nav.setPrimaryTab("Store" as PrimaryTab);
         return true;
       }
-      if (target === "builds" || target === "library") {
-        nav.setPrimaryTab("Builds" as PrimaryTab);
+      if (target === "library") {
+        nav.setPrimaryTab("Mods" as PrimaryTab);
         nav.setSideItem("Library");
         return true;
       }
@@ -191,6 +219,13 @@ export function navigateCultforgeDeepLink(href: string): boolean {
 
 export function handleContentHref(href: string | null | undefined): boolean {
   if (!href) return false;
+  const agentCode = parseAgentLinkCode(href);
+  if (agentCode && /agent\/link|cultforge:\/\/agent/i.test(href)) {
+    void import("../stores/agentControl").then(({ useAgentControlStore }) => {
+      useAgentControlStore.getState().openAgentLinkHelp(agentCode);
+    });
+    return true;
+  }
   if (isCultforgeDeepLink(href)) {
     return navigateCultforgeDeepLink(href);
   }

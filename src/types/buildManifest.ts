@@ -62,6 +62,8 @@ export type GuildBuildRelease = {
   sizes: {
     downloadBytes: number;
     installedBytes: number;
+    /** True when launcher estimated locally (API had no sizes). */
+    estimated?: boolean;
   };
   content: BuildContentSummary;
   changelog: string[];
@@ -76,6 +78,11 @@ export type GuildBuildRelease = {
   description?: string | null;
   isPublished?: boolean;
   isFeatured?: boolean;
+  isPublicCatalog?: boolean;
+  keywords?: string[];
+  hasInstallManifest?: boolean;
+  isInstallable?: boolean;
+  installMode?: string;
   deepLink?: string;
   requiredMods?: GuildBuildModRef[];
   optionalMods?: GuildBuildModRef[];
@@ -93,5 +100,6 @@ export type BuildManifest = {
 
 export type GuildBuildInstallState =
   | { state: "installed"; localVersion: string }
+  | { state: "installing"; localVersion: string | null }
   | { state: "update-available"; localVersion: string }
   | { state: "not-installed"; localVersion: null };

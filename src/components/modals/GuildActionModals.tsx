@@ -13,7 +13,17 @@ import {
   useGuildStore,
   type GuildActionResult,
 } from "../../stores/guilds";
-import { ModalShell } from "./ModalShell";
+import { cn } from "../../lib/cn";
+import { GuildModalShell } from "../guilds/GuildModalShell";
+import {
+  guildDangerBtnClass,
+  guildFieldClass,
+  guildHintClass,
+  guildLabelClass,
+  guildPrimaryBtnClass,
+  guildSectionClass,
+  guildTextareaClass,
+} from "../guilds/guildFormStyles";
 import { useAppStore } from "../../userstore";
 import {
   capabilitiesForRole,
@@ -24,14 +34,20 @@ import {
   toLocalDateValue,
   toLocalTimeValue,
 } from "../../lib/datetimeFields";
-import { GuildBuildEditor } from "../guilds/manage/GuildBuildEditor";
+import { GuildBuildEditorScreen } from "../guilds/manage/GuildBuildEditorScreen";
+import {
+  BuildImageField,
+  emptyBuildImageDraft,
+  type BuildImageDraft,
+} from "../guilds/manage/BuildImageField";
 import { CfSelect } from "../ui/CfSelect";
 
-const fieldClass =
-  "w-full rounded-lg border border-border-subtle bg-black/25 px-3 py-2.5 text-[12px] text-text-primary outline-none focus:border-primary-base/45 [color-scheme:dark]";
+function isHttpUrl(value: string): boolean {
+  return /^https?:\/\//i.test(value.trim());
+}
 
-const labelClass =
-  "text-[10px] font-semibold uppercase tracking-wider text-text-muted";
+const fieldClass = guildFieldClass;
+const labelClass = guildLabelClass;
 
 export function GuildActionModals() {
   const modal = useGuildModalsStore((state) => state.modal);
@@ -107,6 +123,12 @@ export function GuildActionModals() {
   const [tags, setTags] = useState("");
   const [requiredBuildId, setRequiredBuildId] = useState("");
   const [requiredBuildVersion, setRequiredBuildVersion] = useState("");
+  const [serverIcon, setServerIcon] = useState<BuildImageDraft>(() =>
+    emptyBuildImageDraft(),
+  );
+  const [serverCover, setServerCover] = useState<BuildImageDraft>(() =>
+    emptyBuildImageDraft(),
+  );
   const [score, setScore] = useState("");
   const [rank, setRank] = useState("1");
   const [metric, setMetric] = useState<RankingMetric>("xp");
@@ -159,6 +181,24 @@ export function GuildActionModals() {
     setTags(targetServer?.tags.join(", ") ?? "");
     setRequiredBuildId(targetServer?.requiredBuildId ?? "");
     setRequiredBuildVersion(targetServer?.requiredBuildVersion ?? "");
+    setServerIcon(
+      emptyBuildImageDraft(
+        targetServer?.iconUrl && isHttpUrl(targetServer.iconUrl)
+          ? targetServer.iconUrl
+          : "",
+      ),
+    );
+    setServerCover(
+      emptyBuildImageDraft(
+        (targetServer?.coverUrl && isHttpUrl(targetServer.coverUrl)
+          ? targetServer.coverUrl
+          : null) ||
+          (targetServer?.thumbnail && isHttpUrl(targetServer.thumbnail)
+            ? targetServer.thumbnail
+            : "") ||
+          "",
+      ),
+    );
     setScore(targetRanking?.score ?? "");
     setRank(String(targetRanking?.rank ?? 1));
     setMetric(targetRanking?.metric ?? rankingMetric);
@@ -199,6 +239,26 @@ export function GuildActionModals() {
     targetRanking,
     targetBuild,
   ]);
+
+  const subtitle = useMemo(() => {
+    if (modal === "invite")
+      return "Create a link on invite.cultforge.com — optional username for a curated invite.";
+    if (modal === "member")
+      return "Update roles or remove someone from the guild roster.";
+    if (modal === "event")
+      return "Plan something for your crew. Markdown and cultforge:// links are supported.";
+    if (modal === "announcement")
+      return "Post news to the guild board for everyone to see.";
+    if (modal === "server")
+      return "Add a world your guild can play on together.";
+    if (modal === "ranking")
+      return "Track who is leading on the trophy wall.";
+    if (modal === "leave")
+      return "You will lose access to this guild's chat, builds, and events.";
+    if (modal === "transfer")
+      return "Hand leadership to another member before you step back.";
+    return undefined;
+  }, [modal]);
 
   const [inviteUrl, setInviteUrl] = useState<string | null>(null);
   const [inviteBusy, setInviteBusy] = useState(false);
@@ -241,29 +301,26 @@ export function GuildActionModals() {
       .filter((link) => link.label && link.href);
 
   return (
-    <ModalShell
-      open={modal !== null}
-      title={heading}
-      onClose={close}
-      wide={
-        modal === "event" ||
-        modal === "announcement" ||
-        modal === "build"
-      }
-    >
-      <div className="flex flex-col gap-3">
-        {modal !== "invite" &&
-          modal !== "announcement" &&
-          modal !== "event" &&
-          modal !== "member" &&
-          modal !== "server" &&
-          modal !== "build" && (
-          <div className="rounded-lg border border-state-warning/20 bg-state-warning/6 px-3 py-2 text-[9px] text-text-muted">
-            Session-only for now. No guild server request or persistent change
-            will be sent.
-          </div>
-        )}
+    <>
+      <GuildBuildEditorScreen
+        open={modal === "build"}
+        title={heading}
+        guildId={guildId}
+        targetBuild={targetBuild}
+        onClose={close}
+        onFinish={finish}
+      />
 
+      <GuildModalShell
+        open={modal !== null && modal !== "build"}
+        title={heading}
+        subtitle={subtitle}
+        onClose={close}
+        confirmClose
+        confirmCloseMessage="Close this dialog? Unsaved edits will be lost."
+        size={modal === "event" || modal === "announcement" || modal === "server" ? "wide" : "default"}
+      >
+      <div className="flex flex-col gap-4">
         {modal === "invite" && (
           <>
             <p className="text-[11px] text-text-muted">
@@ -316,7 +373,7 @@ export function GuildActionModals() {
                   .then(finish)
                   .finally(() => setInviteBusy(false));
               }}
-              className="cf-btn-primary rounded-lg px-4 py-2 text-[10px] font-semibold cursor-pointer disabled:opacity-50"
+              className={guildPrimaryBtnClass}
             >
               {inviteBusy ? "Creating…" : "Create invite"}
             </button>
@@ -374,7 +431,7 @@ export function GuildActionModals() {
                   () => setSaving(false),
                 );
               }}
-              className="rounded-lg border border-state-error/30 px-3 py-2 text-[10px] text-state-error disabled:opacity-35 cursor-pointer"
+              className={guildDangerBtnClass}
             >
               {saving ? "Removing…" : "Remove member"}
             </button>
@@ -440,7 +497,7 @@ export function GuildActionModals() {
             <textarea
               value={body}
               onChange={(event) => setBody(event.target.value)}
-              className={`${fieldClass} min-h-28 resize-y`}
+              className={`${guildTextareaClass} min-h-28`}
               placeholder="Description (markdown OK)"
             />
             <input
@@ -452,7 +509,7 @@ export function GuildActionModals() {
             <textarea
               value={linksDraft}
               onChange={(event) => setLinksDraft(event.target.value)}
-              className={`${fieldClass} min-h-16 resize-y`}
+              className={`${guildTextareaClass} min-h-16`}
               placeholder="Links — one per line: Label|href"
             />
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
@@ -533,7 +590,7 @@ export function GuildActionModals() {
                 setSaving(true);
                 void finish(saveEvent(item)).finally(() => setSaving(false));
               }}
-              className="cf-btn-primary cursor-pointer rounded-lg px-4 py-2.5 text-[12px] font-semibold disabled:opacity-50"
+              className={guildPrimaryBtnClass}
             >
               {saving ? "Saving…" : "Save event"}
             </button>
@@ -556,7 +613,7 @@ export function GuildActionModals() {
                       () => setSaving(false),
                     );
                   }}
-                  className="cursor-pointer rounded-lg border border-state-error/30 px-3 py-2 text-[11px] text-state-error disabled:opacity-35"
+                  className={cn(guildDangerBtnClass, "disabled:opacity-35")}
                 >
                   Cancel event
                 </button>
@@ -596,7 +653,7 @@ export function GuildActionModals() {
             <textarea
               value={body}
               onChange={(event) => setBody(event.target.value)}
-              className={`${fieldClass} min-h-32 resize-y`}
+              className={`${guildTextareaClass} min-h-32`}
               placeholder="Write the announcement… (markdown OK)"
             />
             <input
@@ -608,7 +665,7 @@ export function GuildActionModals() {
             <textarea
               value={linksDraft}
               onChange={(event) => setLinksDraft(event.target.value)}
-              className={`${fieldClass} min-h-16 resize-y`}
+              className={`${guildTextareaClass} min-h-16`}
               placeholder="Links — one per line: Label|href"
             />
             <label className="flex items-center gap-2 text-[10px] text-text-muted">
@@ -643,7 +700,7 @@ export function GuildActionModals() {
                 setSaving(true);
                 void finish(saveNews(item)).finally(() => setSaving(false));
               }}
-              className="cf-btn-primary rounded-lg px-4 py-2 text-[10px] font-semibold cursor-pointer disabled:opacity-50"
+              className={guildPrimaryBtnClass}
             >
               {saving ? "Saving…" : "Save announcement"}
             </button>
@@ -666,7 +723,7 @@ export function GuildActionModals() {
                       () => setSaving(false),
                     );
                   }}
-                  className="rounded-lg border border-state-error/30 px-3 py-2 text-[10px] text-state-error disabled:opacity-35 cursor-pointer"
+                  className={guildDangerBtnClass}
                 >
                   Delete announcement
                 </button>
@@ -746,6 +803,24 @@ export function GuildActionModals() {
               className={fieldClass}
               placeholder="Tags (comma separated)"
             />
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <BuildImageField
+                kind="icon"
+                label="Server icon"
+                value={serverIcon}
+                onChange={setServerIcon}
+                existingHint={targetServer?.iconUrl ?? null}
+                stagedHint="File staged — uploads when you save the server."
+              />
+              <BuildImageField
+                kind="cover"
+                label="Cover image"
+                value={serverCover}
+                onChange={setServerCover}
+                existingHint={targetServer?.coverUrl ?? targetServer?.thumbnail ?? null}
+                stagedHint="File staged — uploads when you save the server."
+              />
+            </div>
             <button
               type="button"
               disabled={saving}
@@ -754,6 +829,17 @@ export function GuildActionModals() {
                   toast.error("Enter a server name and address.");
                   return;
                 }
+                const iconUrlOut = serverIcon.upload
+                  ? null
+                  : serverIcon.url.trim() || targetServer?.iconUrl || null;
+                const coverUrlOut = serverCover.upload
+                  ? null
+                  : serverCover.url.trim() ||
+                    targetServer?.coverUrl ||
+                    (targetServer?.thumbnail?.startsWith("http")
+                      ? targetServer.thumbnail
+                      : null) ||
+                    null;
                 const item: GuildServer = {
                   id: targetServer?.id ?? `srv-${Date.now()}`,
                   guildId,
@@ -766,8 +852,14 @@ export function GuildActionModals() {
                   region: region.trim() || "NA",
                   description: targetServer?.description ?? "",
                   thumbnail:
-                    targetServer?.thumbnail ??
-                    "linear-gradient(135deg,#0a1013,#173d2d,#0a1013)",
+                    serverCover.preview ||
+                    coverUrlOut ||
+                    serverIcon.preview ||
+                    iconUrlOut ||
+                    targetServer?.thumbnail ||
+                    "",
+                  iconUrl: iconUrlOut,
+                  coverUrl: coverUrlOut,
                   tags: tags
                     .split(",")
                     .map((tag) => tag.trim())
@@ -778,9 +870,14 @@ export function GuildActionModals() {
                   requiredBuildVersion: requiredBuildVersion.trim(),
                 };
                 setSaving(true);
-                void finish(saveServer(item)).finally(() => setSaving(false));
+                void finish(
+                  saveServer(item, {
+                    iconUpload: serverIcon.upload,
+                    coverUpload: serverCover.upload,
+                  }),
+                ).finally(() => setSaving(false));
               }}
-              className="cf-btn-primary rounded-lg px-4 py-2 text-[10px] font-semibold cursor-pointer disabled:opacity-50"
+              className={guildPrimaryBtnClass}
             >
               {saving ? "Saving…" : "Save server"}
             </button>
@@ -803,7 +900,7 @@ export function GuildActionModals() {
                       deleteServer(guildId, targetServer.id),
                     ).finally(() => setSaving(false));
                   }}
-                  className="rounded-lg border border-state-error/30 px-3 py-2 text-[10px] text-state-error disabled:opacity-35 cursor-pointer"
+                  className={guildDangerBtnClass}
                 >
                   {saving ? "Deleting…" : "Delete server"}
                 </button>
@@ -880,7 +977,7 @@ export function GuildActionModals() {
                 }
                 finish(saveRankingRow(item));
               }}
-              className="cf-btn-primary rounded-lg px-4 py-2 text-[10px] font-semibold cursor-pointer"
+              className={guildPrimaryBtnClass}
             >
               Save ranking
             </button>
@@ -906,21 +1003,13 @@ export function GuildActionModals() {
                       ),
                     )
                   }
-                  className="rounded-lg border border-state-error/30 px-3 py-2 text-[10px] text-state-error disabled:opacity-35 cursor-pointer"
+                  className={guildDangerBtnClass}
                 >
                   Delete ranking row
                 </button>
               </>
             )}
           </>
-        )}
-
-        {modal === "build" && (
-          <GuildBuildEditor
-            guildId={guildId}
-            targetBuild={targetBuild}
-            onFinish={finish}
-          />
         )}
 
         {modal === "leave" && (
@@ -940,7 +1029,7 @@ export function GuildActionModals() {
               type="button"
               disabled={!confirmed}
               onClick={() => finish(leaveGuild(guildId))}
-              className="rounded-lg border border-state-error/30 px-3 py-2 text-[10px] text-state-error disabled:opacity-35 cursor-pointer"
+              className={guildDangerBtnClass}
             >
               Leave Guild
             </button>
@@ -978,13 +1067,14 @@ export function GuildActionModals() {
               onClick={() =>
                 finish(transferLeadership(guildId, successorId))
               }
-              className="cf-btn-primary rounded-lg px-4 py-2 text-[10px] font-semibold disabled:opacity-35 cursor-pointer"
+              className={cn(guildPrimaryBtnClass, "disabled:opacity-35")}
             >
               Transfer leadership
             </button>
           </>
         )}
       </div>
-    </ModalShell>
+    </GuildModalShell>
+    </>
   );
 }

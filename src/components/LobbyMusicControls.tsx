@@ -4,6 +4,7 @@ import { Icon } from "./ico";
 import { AppIcons } from "./icons";
 import { useLobbyMusicStore } from "../stores/lobbyMusic";
 import { useThemeStore } from "../stores/theme";
+import { useLaunchStore } from "../stores/launch";
 import {
   lobbyAudioGetLevels,
   lobbyAudioSetVolume,
@@ -33,6 +34,7 @@ export function LobbyMusicControls() {
   const lyricsOpen = useLobbyMusicStore((s) => s.lyricsOpen);
   const toggleLyrics = useLobbyMusicStore((s) => s.toggleLyrics);
   const activeThemeId = useThemeStore((s) => s.activeThemeId);
+  const visualIdle = useLaunchStore((s) => s.visualIdle);
 
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const rafRef = useRef(0);
@@ -56,6 +58,10 @@ export function LobbyMusicControls() {
     if (!canvas) return;
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
+    if (!playing || visualIdle) {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      return;
+    }
     const rootStyles = getComputedStyle(document.documentElement);
     const primary = rootStyles.getPropertyValue("--color-primary-base").trim();
     const primarySoft = rootStyles
@@ -63,6 +69,10 @@ export function LobbyMusicControls() {
       .trim();
 
     const draw = () => {
+      if (useLaunchStore.getState().visualIdle) {
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        return;
+      }
       const dpr = window.devicePixelRatio || 1;
       const cssW = canvas.clientWidth;
       const cssH = canvas.clientHeight;
@@ -96,7 +106,7 @@ export function LobbyMusicControls() {
 
     rafRef.current = requestAnimationFrame(draw);
     return () => cancelAnimationFrame(rafRef.current);
-  }, [playing, muted, activeThemeId]);
+  }, [playing, muted, activeThemeId, visualIdle]);
 
   return (
     <div className="flex items-center gap-2 shrink-0 min-w-0">

@@ -1,11 +1,13 @@
 import {
   useEffect,
   useId,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
   type KeyboardEvent,
 } from "react";
+import { createPortal } from "react-dom";
 import { cn } from "../../lib/cn";
 
 export type CfSelectOption = {
@@ -13,6 +15,14 @@ export type CfSelectOption = {
   label: string;
   description?: string;
   disabled?: boolean;
+};
+
+type MenuPos = {
+  top: number;
+  left: number;
+  width: number;
+  maxHeight: number;
+  flip: boolean;
 };
 
 type Props = {
@@ -29,6 +39,19 @@ type Props = {
   "aria-label"?: string;
 };
 
+function parseCssLength(length: string, fallback = 224): number {
+  const trimmed = length.trim();
+  if (trimmed.endsWith("rem")) {
+    const n = Number.parseFloat(trimmed);
+    return Number.isFinite(n) ? n * 16 : fallback;
+  }
+  if (trimmed.endsWith("px")) {
+    const n = Number.parseFloat(trimmed);
+    return Number.isFinite(n) ? n : fallback;
+  }
+  return fallback;
+}
+
 export function CfSelect({
   value,
   onChange,
@@ -42,13 +65,17 @@ export function CfSelect({
 }: Props) {
   const listId = useId();
   const rootRef = useRef<HTMLDivElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
   const searchRef = useRef<HTMLInputElement>(null);
   const [open, setOpen] = useState(false);
+  const [menuPos, setMenuPos] = useState<MenuPos | null>(null);
   const [query, setQuery] = useState("");
   const [highlight, setHighlight] = useState(0);
 
   const selected = options.find((o) => o.value === value) ?? null;
   const enableSearch = searchable ?? options.length >= 10;
+  const preferredMenuHeight = parseCssLength(maxMenuHeight);
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -61,27 +88,70 @@ export function CfSelect({
     );
   }, [options, query]);
 
+  const updateMenuPos = () => {
+    const el = triggerRef.current;
+    if (!el) return;
+    const rect = el.getBoundingClientRect();
+    const margin = 12;
+    const gap = 4;
+    const searchHeight = enableSearch ? 44 : 0;
+    const spaceBelow = window.innerHeight - rect.bottom - margin;
+    const spaceAbove = rect.top - margin;
+    const flip = spaceBelow < 160 && spaceAbove > spaceBelow;
+    const available = (flip ? spaceAbove : spaceBelow) - gap;
+    const maxHeight = Math.min(
+      preferredMenuHeight,
+      Math.max(96, available - searchHeight),
+    );
+
+    setMenuPos({
+      top: flip ? rect.top - gap : rect.bottom + gap,
+      left: rect.left,
+      width: rect.width,
+      maxHeight,
+      flip,
+    });
+  };
+
+  useLayoutEffect(() => {
+    if (!open) return;
+    updateMenuPos();
+  }, [open, enableSearch, preferredMenuHeight]);
+
   useEffect(() => {
     if (!open) return;
     const onDoc = (event: MouseEvent) => {
-      if (!rootRef.current?.contains(event.target as Node)) {
-        setOpen(false);
+      const target = event.target as Node;
+      if (
+        rootRef.current?.contains(target) ||
+        menuRef.current?.contains(target)
+      ) {
+        return;
       }
+      setOpen(false);
     };
     const onKey = (event: globalThis.KeyboardEvent) => {
       if (event.key === "Escape") setOpen(false);
     };
+    const onReposition = () => updateMenuPos();
+
     document.addEventListener("mousedown", onDoc);
     document.addEventListener("keydown", onKey);
+    window.addEventListener("resize", onReposition);
+    window.addEventListener("scroll", onReposition, true);
+
     return () => {
       document.removeEventListener("mousedown", onDoc);
       document.removeEventListener("keydown", onKey);
+      window.removeEventListener("resize", onReposition);
+      window.removeEventListener("scroll", onReposition, true);
     };
-  }, [open]);
+  }, [open, enableSearch, preferredMenuHeight]);
 
   useEffect(() => {
     if (!open) {
       setQuery("");
+      setMenuPos(null);
       return;
     }
     const idx = Math.max(
@@ -124,6 +194,7 @@ export function CfSelect({
   return (
     <div ref={rootRef} className={cn("relative min-w-0", className)}>
       <button
+        ref={triggerRef}
         type="button"
         disabled={disabled}
         aria-haspopup="listbox"
@@ -162,91 +233,104 @@ export function CfSelect({
         </svg>
       </button>
 
-      {open && (
-        <div
-          id={listId}
-          role="listbox"
-          tabIndex={-1}
-          onKeyDown={onListKey}
-          className="absolute left-0 right-0 z-50 mt-1 overflow-hidden rounded-lg border border-border-subtle bg-bg-card shadow-[0_12px_40px_rgba(0,0,0,0.45)]"
-        >
-          {enableSearch && (
-            <div className="border-b border-border-subtle p-1.5">
-              <input
-                ref={searchRef}
-                value={query}
-                onChange={(e) => {
-                  setQuery(e.target.value);
-                  setHighlight(0);
-                }}
-                placeholder="Filter…"
-                className="h-8 w-full rounded-md border border-border-subtle bg-black/30 px-2.5 text-[11px] text-text-primary outline-none placeholder:text-text-disabled focus:border-primary-base/40"
-              />
-            </div>
-          )}
+      {open &&
+        menuPos &&
+        createPortal(
           <div
-            className="scrollbar-cultforge overflow-y-auto overscroll-contain py-1"
-            style={{ maxHeight: maxMenuHeight }}
+            ref={menuRef}
+            id={listId}
+            role="listbox"
+            tabIndex={-1}
+            onKeyDown={onListKey}
+            className="fixed z-[450] overflow-hidden rounded-lg border border-border-subtle bg-bg-card shadow-[0_12px_40px_rgba(0,0,0,0.45)]"
+            style={{
+              top: menuPos.top,
+              left: menuPos.left,
+              width: menuPos.width,
+              maxWidth: "calc(100vw - 24px)",
+              transform: menuPos.flip ? "translateY(-100%)" : undefined,
+            }}
           >
-            {filtered.length === 0 ? (
-              <p className="px-3 py-3 text-center text-[11px] text-text-muted">
-                No matches
-              </p>
-            ) : (
-              filtered.map((option, index) => {
-                const active = option.value === value;
-                const focused = index === highlight;
-                return (
-                  <button
-                    key={option.value}
-                    type="button"
-                    role="option"
-                    aria-selected={active}
-                    disabled={option.disabled}
-                    onMouseEnter={() => setHighlight(index)}
-                    onClick={() => !option.disabled && pick(option.value)}
-                    className={cn(
-                      "flex w-full items-start gap-2 px-3 py-2 text-left cursor-pointer disabled:cursor-not-allowed disabled:opacity-40",
-                      focused && "bg-white/6",
-                      active && "bg-primary-base/12",
-                    )}
-                  >
-                    <span className="min-w-0 flex-1">
-                      <span
-                        className={cn(
-                          "block truncate text-[12px]",
-                          active ? "text-primary-base font-medium" : "text-text-primary",
-                        )}
-                      >
-                        {option.label}
-                      </span>
-                      {option.description ? (
-                        <span className="block truncate text-[10px] text-text-muted">
-                          {option.description}
-                        </span>
-                      ) : null}
-                    </span>
-                    {active ? (
-                      <svg
-                        viewBox="0 0 16 16"
-                        className="mt-0.5 h-3.5 w-3.5 shrink-0 text-primary-base"
-                        aria-hidden
-                      >
-                        <path
-                          fill="currentColor"
-                          d="M12.207 4.793a1 1 0 0 1 0 1.414l-5 5a1 1 0 0 1-1.414 0l-2-2a1 1 0 1 1 1.414-1.414L6.5 9.086l4.293-4.293a1 1 0 0 1 1.414 0Z"
-                        />
-                      </svg>
-                    ) : (
-                      <span className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-                    )}
-                  </button>
-                );
-              })
+            {enableSearch && (
+              <div className="border-b border-border-subtle p-1.5">
+                <input
+                  ref={searchRef}
+                  value={query}
+                  onChange={(e) => {
+                    setQuery(e.target.value);
+                    setHighlight(0);
+                  }}
+                  placeholder="Filter…"
+                  className="h-8 w-full rounded-md border border-border-subtle bg-black/30 px-2.5 text-[11px] text-text-primary outline-none placeholder:text-text-disabled focus:border-primary-base/40"
+                />
+              </div>
             )}
-          </div>
-        </div>
-      )}
+            <div
+              className="scrollbar-cultforge overflow-y-auto overscroll-contain py-1"
+              style={{ maxHeight: menuPos.maxHeight }}
+            >
+              {filtered.length === 0 ? (
+                <p className="px-3 py-3 text-center text-[11px] text-text-muted">
+                  No matches
+                </p>
+              ) : (
+                filtered.map((option, index) => {
+                  const active = option.value === value;
+                  const focused = index === highlight;
+                  return (
+                    <button
+                      key={option.value}
+                      type="button"
+                      role="option"
+                      aria-selected={active}
+                      disabled={option.disabled}
+                      onMouseEnter={() => setHighlight(index)}
+                      onClick={() => !option.disabled && pick(option.value)}
+                      className={cn(
+                        "flex w-full cursor-pointer items-start gap-2 px-3 py-2 text-left disabled:cursor-not-allowed disabled:opacity-40",
+                        focused && "bg-white/6",
+                        active && "bg-primary-base/12",
+                      )}
+                    >
+                      <span className="min-w-0 flex-1">
+                        <span
+                          className={cn(
+                            "block truncate text-[12px]",
+                            active
+                              ? "font-medium text-primary-base"
+                              : "text-text-primary",
+                          )}
+                        >
+                          {option.label}
+                        </span>
+                        {option.description ? (
+                          <span className="block truncate text-[10px] text-text-muted">
+                            {option.description}
+                          </span>
+                        ) : null}
+                      </span>
+                      {active ? (
+                        <svg
+                          viewBox="0 0 16 16"
+                          className="mt-0.5 h-3.5 w-3.5 shrink-0 text-primary-base"
+                          aria-hidden
+                        >
+                          <path
+                            fill="currentColor"
+                            d="M12.207 4.793a1 1 0 0 1 0 1.414l-5 5a1 1 0 0 1-1.414 0l-2-2a1 1 0 1 1 1.414-1.414L6.5 9.086l4.293-4.293a1 1 0 0 1 1.414 0Z"
+                          />
+                        </svg>
+                      ) : (
+                        <span className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                      )}
+                    </button>
+                  );
+                })
+              )}
+            </div>
+          </div>,
+          document.body,
+        )}
     </div>
   );
 }

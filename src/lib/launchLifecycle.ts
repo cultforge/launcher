@@ -72,18 +72,26 @@ export async function enterLaunchIdleMode(): Promise<void> {
     // ignore
   }
   try {
-    for (let i = 0; i < 8; i++) {
-      useSystemMetricsStore.getState().stopPolling();
-    }
+    useSystemMetricsStore.getState().forceStopPolling();
   } catch {
     // ignore
   }
-  logger.info("Launcher idle mode: metrics paused, lobby music stopped");
+  try {
+    useLaunchStore.getState().setVisualIdle(true);
+  } catch {
+    // ignore
+  }
+  logger.info("Launcher idle mode: metrics paused, lobby music stopped, visuals frozen");
 }
 
 export async function exitLaunchIdleMode(): Promise<void> {
   if (!idleActive) return;
   idleActive = false;
+  try {
+    useLaunchStore.getState().setVisualIdle(false);
+  } catch {
+    // ignore
+  }
   logger.info("Launcher idle mode ended");
 }
 

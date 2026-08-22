@@ -21,6 +21,7 @@ export function GlobalChatDrawer() {
   const send = useGlobalChatStore((state) => state.send);
   const report = useGlobalChatStore((state) => state.report);
   const online = useGlobalChatStore((state) => state.online);
+  const connected = useGlobalChatStore((state) => state.connected);
   const connect = useGlobalChatStore((state) => state.connect);
   const feedback = useGlobalChatStore((state) => state.feedback);
   const clearFeedback = useGlobalChatStore((state) => state.clearFeedback);
@@ -51,12 +52,14 @@ export function GlobalChatDrawer() {
                   <Drawer.Title className="font-sora text-[15px] font-bold text-text-primary">
                     Global Chat
                   </Drawer.Title>
-                  <span className="rounded-full border border-state-warning/25 bg-state-warning/8 px-2 py-0.5 text-[8px] font-semibold uppercase tracking-wider text-state-warning">
-                    Offline
+                  <span className={`rounded-full border px-2 py-0.5 text-[8px] font-semibold uppercase tracking-wider ${
+                    connected ? "border-primary-base/25 bg-primary-base/8 text-primary-base" : "border-state-warning/25 bg-state-warning/8 text-state-warning"
+                  }`}>
+                    {connected ? "Online" : "Offline"}
                   </span>
                 </div>
                 <Drawer.Description className="mt-0.5 text-[10px] text-text-muted">
-                  Launcher-wide lounge · {online} simulated online
+                  Launcher-wide lounge{online > 0 ? ` · ${online} online` : ""}
                 </Drawer.Description>
               </div>
               <Drawer.Close

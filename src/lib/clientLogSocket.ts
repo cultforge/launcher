@@ -103,6 +103,10 @@ async function connect() {
   };
 }
 
+export function isClientWsOpen(): boolean {
+  return socket?.readyState === WebSocket.OPEN;
+}
+
 /** Send a JSON frame uplink through the sidecar (guild channel join, etc.). */
 export function sendClientWsFrame(frame: Record<string, unknown>): boolean {
   if (!socket || socket.readyState !== WebSocket.OPEN) return false;

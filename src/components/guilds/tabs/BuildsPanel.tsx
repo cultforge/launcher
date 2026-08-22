@@ -5,13 +5,18 @@ import {
 } from "../../../data/guildBuilds";
 import { cn } from "../../../lib/cn";
 import { installGuildRelease, syncManagedBuild } from "../../../lib/guildBuildSync";
+import {
+  estimateGuildBuildSizes,
+  formatBuildSizeBytes,
+} from "../../../lib/guildBuildSize";
 import { useBuildStore } from "../../../stores/build";
 import { useGuildStore } from "../../../stores/guilds";
 import type {
   GuildBuildInstallState,
   GuildBuildRelease,
 } from "../../../types/buildManifest";
-import { useNavigationStore } from "../../../typlibs";
+import { useDownloadStore, useNavigationStore } from "../../../typlibs";
+import { goHomeBuilds } from "../../../lib/homeNav";
 import { EntityImage } from "../../EntityImage";
 import type { GuildServer } from "../../../data/guilds";
 import { toast } from "sonner";
@@ -21,20 +26,29 @@ const PAGE_SIZE = 20;
 type StatusFilter = "all" | GuildBuildInstallState["state"];
 type SortMode = "newest" | "name" | "size";
 
-function formatBytes(bytes: number) {
-  return `${(bytes / 1024 ** 3).toFixed(2)} GB`;
+function formatBytes(bytes: number, estimated?: boolean) {
+  return formatBuildSizeBytes(bytes, { estimated });
 }
 
 function stateLabel(state: GuildBuildInstallState) {
   if (state.state === "installed") return "Installed";
+  if (state.state === "installing") return "Installing";
   if (state.state === "update-available") return "Update available";
   return "Not installed";
 }
 
 function stateClass(state: GuildBuildInstallState) {
   if (state.state === "installed") return "text-primary-base";
+  if (state.state === "installing") return "text-primary-base";
   if (state.state === "update-available") return "text-state-warning";
   return "text-text-muted";
+}
+
+function actionLabel(state: GuildBuildInstallState, busy: boolean) {
+  if (busy || state.state === "installing") return "Installing…";
+  if (state.state === "installed") return "Open installed build";
+  if (state.state === "update-available") return "Sync / repair";
+  return "Install build";
 }
 
 function CompactReleaseRow({
@@ -81,7 +95,7 @@ function CompactReleaseRow({
         </span>
       </span>
       <span className="text-[9px] text-text-disabled">
-        {formatBytes(release.sizes.downloadBytes)}
+        {formatBytes(release.sizes.downloadBytes, release.sizes.estimated)}
       </span>
     </button>
   );
@@ -92,6 +106,11 @@ function ReleaseDetail({
   state,
   notice,
   server,
+  busy,
+  progressPct,
+  progressLabel,
+  progressBytes,
+  progressTotal,
   onPrimaryAction,
   onDismissNotice,
 }: {
@@ -99,6 +118,11 @@ function ReleaseDetail({
   state: GuildBuildInstallState;
   notice: string | null;
   server: GuildServer | undefined;
+  busy: boolean;
+  progressPct: number;
+  progressLabel: string | null;
+  progressBytes: number;
+  progressTotal: number;
   onPrimaryAction: () => void;
   onDismissNotice: () => void;
 }) {
@@ -108,6 +132,7 @@ function ReleaseDetail({
     `${release.content.shaders} shaders`,
     `${release.content.configs} configs`,
   ].join(" · ");
+  const showProgress = busy || state.state === "installing" || progressPct > 0;
 
   return (
     <div className="h-full overflow-y-auto scroll-hidden">
@@ -140,36 +165,64 @@ function ReleaseDetail({
           <button
             type="button"
             onClick={onPrimaryAction}
-            className="cf-btn-primary rounded-lg px-4 py-2.5 text-[11px] font-semibold cursor-pointer"
+            disabled={busy || state.state === "installing"}
+            className="cf-btn-primary rounded-lg px-4 py-2.5 text-[11px] font-semibold cursor-pointer disabled:opacity-55 disabled:cursor-wait"
           >
-            {state.state === "installed"
-              ? "Open installed build"
-              : state.state === "update-available"
-                ? "Sync / repair"
-                : "Install build"}
+            {actionLabel(state, busy)}
           </button>
         </div>
       </div>
 
       <div className="flex flex-col gap-3 p-4">
-        {notice && (
+        {(notice || showProgress) && (
           <div
             role="status"
-            className="flex items-start justify-between gap-3 rounded-xl border border-border-subtle bg-black/20 p-3"
+            className="rounded-xl border border-border-subtle bg-black/20 p-3"
           >
-            <div>
-              <div className="text-[10px] font-semibold text-text-primary">
-                Status
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0 flex-1">
+                <div className="text-[10px] font-semibold text-text-primary">
+                  {showProgress ? "Install progress" : "Status"}
+                </div>
+                <p className="mt-1 text-[9px] leading-relaxed text-text-muted">
+                  {progressLabel ||
+                    notice ||
+                    (showProgress ? "Preparing files…" : null)}
+                </p>
               </div>
-              <p className="mt-1 text-[9px] leading-relaxed text-text-muted">{notice}</p>
+              {notice && !showProgress ? (
+                <button
+                  type="button"
+                  onClick={onDismissNotice}
+                  className="text-[9px] text-text-muted hover:text-text-primary cursor-pointer shrink-0"
+                >
+                  Dismiss
+                </button>
+              ) : null}
             </div>
-            <button
-              type="button"
-              onClick={onDismissNotice}
-              className="text-[9px] text-text-muted hover:text-text-primary cursor-pointer"
-            >
-              Dismiss
-            </button>
+            {showProgress ? (
+              <div className="mt-3">
+                <div className="flex items-center justify-between gap-2 text-[9px] text-text-muted tabular-nums">
+                  <span>{Math.min(100, Math.max(0, progressPct))}%</span>
+                  <span>
+                    {progressBytes > 0
+                      ? formatBytes(progressBytes)
+                      : progressTotal > 0
+                        ? "0 MB"
+                        : "—"}
+                    {progressTotal > 0 ? ` / ${formatBytes(progressTotal)}` : ""}
+                  </span>
+                </div>
+                <div className="mt-1.5 h-2 overflow-hidden rounded-full bg-white/8">
+                  <div
+                    className="h-full rounded-full bg-primary-base transition-[width] duration-300 ease-out"
+                    style={{
+                      width: `${Math.min(100, Math.max(showProgress ? 2 : 0, progressPct))}%`,
+                    }}
+                  />
+                </div>
+              </div>
+            ) : null}
           </div>
         )}
 
@@ -177,8 +230,8 @@ function ReleaseDetail({
           {[
             ["Minecraft", release.dependencies.minecraft],
             ["Loader", release.dependencies.loader],
-            ["Download", formatBytes(release.sizes.downloadBytes)],
-            ["Installed", formatBytes(release.sizes.installedBytes)],
+            ["Download", formatBytes(release.sizes.downloadBytes, release.sizes.estimated)],
+            ["Installed", formatBytes(release.sizes.installedBytes, release.sizes.estimated)],
           ].map(([label, value]) => (
             <div key={label} className="rounded-xl border border-border-subtle bg-black/15 p-3">
               <div className="text-[8px] uppercase tracking-wider text-text-disabled">
@@ -236,13 +289,19 @@ export function BuildsPanel() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [installJobId, setInstallJobId] = useState<string | null>(null);
   const guildId = useGuildStore((state) => state.activeGuildId);
   const buildReleases = useGuildStore((state) => state.buildReleases);
+  const hydrateGuildBuilds = useGuildStore((state) => state.hydrateGuildBuilds);
+  const patchBuildReleaseSizes = useGuildStore(
+    (state) => state.patchBuildReleaseSizes,
+  );
   const storeServers = useGuildStore((state) => state.servers);
   const builds = useBuildStore((state) => state.builds);
   const setActiveBuild = useBuildStore((state) => state.setActive);
   const setPrimaryTab = useNavigationStore((state) => state.setPrimaryTab);
   const setSideItem = useNavigationStore((state) => state.setSideItem);
+  const downloadQueue = useDownloadStore((state) => state.queue);
 
   const releases = useMemo(
     () => buildReleases.filter((release) => release.guildId === guildId),
@@ -302,6 +361,10 @@ export function BuildsPanel() {
     setNotice(null);
   }, [guildId, latestOnly, query, sort, status]);
 
+  useEffect(() => {
+    if (guildId) void hydrateGuildBuilds(guildId);
+  }, [guildId, hydrateGuildBuilds]);
+
   const pageCount = Math.max(1, Math.ceil(results.length / PAGE_SIZE));
   const currentPage = Math.min(page, pageCount);
   const pageItems = results.slice(
@@ -312,6 +375,58 @@ export function BuildsPanel() {
     pageItems.find((release) => release.id === selectedId) ??
     pageItems[0] ??
     results[0];
+
+  const activeDownload = useMemo(() => {
+    if (installJobId) {
+      return (
+        downloadQueue.find(
+          (item) => item.id === installJobId || item.jobId === installJobId,
+        ) ?? null
+      );
+    }
+    if (!selected) return null;
+    return (
+      downloadQueue.find(
+        (item) =>
+          (item.status === "active" || item.status === "queued") &&
+          item.name === selected.name,
+      ) ?? null
+    );
+  }, [downloadQueue, installJobId, selected]);
+
+  const progressPct = activeDownload?.progress ?? (busy ? 2 : 0);
+  const progressBytes = activeDownload?.downloadedBytes ?? 0;
+  const progressTotal =
+    activeDownload?.totalBytes ??
+    selected?.sizes.downloadBytes ??
+    0;
+  const progressLabel = activeDownload
+    ? `${activeDownload.phase || activeDownload.status} · ${activeDownload.name}`
+    : busy
+      ? "Resolving install manifest…"
+      : null;
+
+  useEffect(() => {
+    if (!selected) return;
+    // Refine heuristic sizes with manifest / Modrinth when a build is focused.
+    if (selected.sizes.downloadBytes > 0 && !selected.sizes.estimated) return;
+    let cancelled = false;
+    void estimateGuildBuildSizes(selected, { allowModrinth: true })
+      .then((sizes) => {
+        if (cancelled) return;
+        patchBuildReleaseSizes(selected.id, {
+          downloadBytes: sizes.downloadBytes,
+          installedBytes: sizes.installedBytes,
+          estimated: sizes.estimated,
+        });
+      })
+      .catch(() => {
+        /* keep heuristic */
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [selected?.id, patchBuildReleaseSizes]);
 
   if (!releases.length) {
     return (
@@ -324,18 +439,19 @@ export function BuildsPanel() {
   const primaryAction = () => {
     if (!selected || busy) return;
     const installState = states.get(selected.id)!;
+    if (installState.state === "installing") return;
     if (installState.state === "installed") {
       setActiveBuild(managedInstanceIdForRelease(selected));
-      setPrimaryTab("Builds");
-      setSideItem("Builds");
+      goHomeBuilds();
       return;
     }
 
     setBusy(true);
+    setInstallJobId(null);
     setNotice(
       installState.state === "update-available"
-        ? `Syncing ${selected.name} ${selected.version} to the guild manifest…`
-        : `Installing ${selected.name} ${selected.version} (~${formatBytes(selected.sizes.downloadBytes)})…`,
+        ? `Syncing ${selected.name} ${selected.version}…`
+        : `Installing ${selected.name} ${selected.version} (${formatBytes(selected.sizes.downloadBytes, selected.sizes.estimated)})…`,
     );
 
     void (async () => {
@@ -344,17 +460,15 @@ export function BuildsPanel() {
           const id = managedInstanceIdForRelease(selected);
           const existing = builds.find((b) => b.id === id);
           if (existing?.managed) {
-            await syncManagedBuild(id);
+            await syncManagedBuild(id, { force: true, onJob: setInstallJobId });
           } else {
-            await installGuildRelease(selected);
+            await installGuildRelease(selected, { onJob: setInstallJobId });
           }
         } else {
-          await installGuildRelease(selected);
+          await installGuildRelease(selected, { onJob: setInstallJobId });
         }
-        setNotice(`${selected.name} matches the guild manifest.`);
+        setNotice(`${selected.name} is installed and matches the guild catalog.`);
         setActiveBuild(managedInstanceIdForRelease(selected));
-        setPrimaryTab("Builds");
-        setSideItem("Builds");
       } catch (err) {
         const message =
           err instanceof Error ? err.message : "Guild build sync failed";
@@ -364,6 +478,7 @@ export function BuildsPanel() {
         });
       } finally {
         setBusy(false);
+        setInstallJobId(null);
       }
     })();
   };
@@ -393,6 +508,7 @@ export function BuildsPanel() {
           options={[
             { value: "all", label: "All states" },
             { value: "installed", label: "Installed" },
+            { value: "installing", label: "Installing" },
             { value: "update-available", label: "Updates" },
             { value: "not-installed", label: "Not installed" },
           ]}
@@ -479,6 +595,11 @@ export function BuildsPanel() {
               state={states.get(selected.id)!}
               notice={notice}
               server={servers.get(selected.serverId)}
+              busy={busy}
+              progressPct={progressPct}
+              progressLabel={progressLabel}
+              progressBytes={progressBytes}
+              progressTotal={progressTotal}
               onPrimaryAction={primaryAction}
               onDismissNotice={() => setNotice(null)}
             />

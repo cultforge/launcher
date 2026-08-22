@@ -1,11 +1,12 @@
 import { MemoryStick, Cpu, HardDrive, Zap } from "lucide-react";
-import { PerformanceResult, useNavigationStore } from "../typlibs";
+import { PerformanceResult } from "../typlibs";
 import { Chip, ProgressBar } from "@heroui/react";
 import { ResponsiveLine } from "@nivo/line";
 import { useEffect, useMemo } from "react";
 import { cn } from "../lib/cn";
 import { useBuildStore } from "../stores/build";
 import { useBuildUiStore } from "../stores/buildUi";
+import { goHomeBuilds } from "../lib/homeNav";
 import { useSystemMetricsStore } from "../stores/systemMetrics";
 import { toast } from "sonner";
 
@@ -93,7 +94,6 @@ export default function PerformanceChart({
   const setConfig = useBuildStore((s) => s.setConfig);
   const activeId = useBuildStore((s) => s.activeId);
   const setActiveTab = useBuildUiStore((s) => s.setActiveTab);
-  const setPrimaryTab = useNavigationStore((s) => s.setPrimaryTab);
 
   useEffect(() => {
     startPolling();
@@ -179,12 +179,12 @@ export default function PerformanceChart({
         <button
           type="button"
           onClick={() => {
-            setPrimaryTab("Builds");
+            goHomeBuilds();
             setActiveTab("Configuration");
           }}
           className="capitalize font-inter font-normal text-text-muted text-[10px] cursor-pointer hover:text-text-secondary bg-transparent border-0 p-0"
         >
-          {status === "error" && !latest ? "Offline" : "Configure"}
+          {status === "error" && !latest ? "Offline" : isCompact ? "Settings" : "Configure"}
         </button>
       </div>
 
@@ -274,7 +274,9 @@ export default function PerformanceChart({
       </div>
       )}
 
-      <div className={cn("relative z-10 flex flex-col", isCompact ? "gap-1.5" : "gap-2")}>
+      <div className={cn("relative z-10 flex flex-col", isCompact ? "gap-1" : "gap-2")}>
+        {!isCompact && (
+        <>
         <ProgressBar
           value={ramPercent}
           minValue={0}
@@ -334,6 +336,8 @@ export default function PerformanceChart({
             <ProgressBar.Fill className="bg-white/35 rounded-full" />
           </ProgressBar.Track>
         </ProgressBar>
+        </>
+        )}
       </div>
 
       <button

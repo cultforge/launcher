@@ -1,0 +1,402 @@
+CultForge Launcher — Legal & License Notice
+===========================================
+
+Product:        CultForge Launcher (“CultForge”, “the Launcher”, “the Software”)
+Version:        2.4.0 (CultForge 2.4 Generation 2)
+Publisher:      CultForge
+Contact:        support via cultforge.com / your CultForge account channels
+Canonical site: https://cultforge.com
+API:            https://api.cultforge.com
+
+This file combines:
+  1. End User License Agreement (EULA)
+  2. Terms of Service
+  3. Privacy Policy
+  4. Open Source Licenses & third-party notices
+  5. Platform / Minecraft compliance notes
+
+Last updated: 15 August 2026
+
+If a newer Privacy Policy, Terms, or EULA is published on cultforge.com, the
+online version controls for online services. This file controls for the
+desktop Software as distributed with this release unless CultForge states
+otherwise.
+
+By installing, copying, or using the Launcher you agree to Sections 1–3 and
+acknowledge Sections 4–5.
+
+
+--------------------------------------------------------------------------------
+1. END USER LICENSE AGREEMENT (EULA)
+--------------------------------------------------------------------------------
+
+1.1 License grant
+Subject to these terms, CultForge grants you a personal, limited,
+non-exclusive, non-transferable, revocable license to install and use the
+Launcher on devices you own or control, solely to access CultForge services
+and compatible Minecraft-related content as intended by CultForge.
+
+1.2 Ownership
+The Launcher (including UI, branding, native shell, and CultForge-authored
+code and assets) is licensed, not sold. CultForge and its licensors retain
+all right, title, and interest. Open-source components remain under their
+own licenses (Section 4).
+
+1.3 Restrictions
+You may not, except as allowed by law or an applicable open-source license:
+  (a) reverse engineer, decompile, or circumvent security or update controls
+      beyond lawful interoperability rights;
+  (b) remove or alter copyright, trademark, or attribution notices;
+  (c) rent, lease, sell, sublicense, or redistribute the Launcher as a
+      competing product without prior written permission;
+  (d) use the Launcher to distribute malware, cheat software intended to
+      harm other players or servers, or content that violates applicable law;
+  (e) misuse CultForge APIs, forge identity, or attempt unauthorized access
+      to accounts, guilds, builds, or infrastructure;
+  (f) use automated scraping of CultForge services in a way that degrades
+      service or violates rate limits / API terms.
+
+1.4 Updates
+The Launcher may check for and install updates (including via
+api.cultforge.com and GitHub Releases). Updates may be required for
+continued use of online features. You authorize CultForge to download and
+apply updates through the built-in updater when you choose to update.
+
+1.5 Local components
+The Launcher may run a local sidecar / helper process (e.g. FastAPI client)
+on your machine to provide catalog, auth session bridging, system metrics,
+and related features. Those processes are part of the Software and subject
+to this EULA.
+
+1.6 Third-party platforms
+Minecraft, Java, Microsoft accounts, Modrinth, and other third-party
+services are governed by their own terms. CultForge does not grant you
+rights to those products. See Section 5.
+
+1.7 Disclaimer of warranties
+THE SOFTWARE IS PROVIDED “AS IS” AND “AS AVAILABLE”, WITHOUT WARRANTIES OF
+ANY KIND, EXPRESS OR IMPLIED, INCLUDING MERCHANTABILITY, FITNESS FOR A
+PARTICULAR PURPOSE, AND NON-INFRINGEMENT. CultForge does not warrant
+uninterrupted or error-free operation, or compatibility with every system,
+GPU driver, or Minecraft version.
+
+1.8 Limitation of liability
+TO THE MAXIMUM EXTENT PERMITTED BY LAW, CULTFORGE AND ITS CONTRIBUTORS ARE
+NOT LIABLE FOR INDIRECT, INCIDENTAL, SPECIAL, CONSEQUENTIAL, OR PUNITIVE
+DAMAGES, OR LOSS OF DATA, PROFITS, OR BUSINESS, ARISING FROM USE OF THE
+SOFTWARE OR SERVICES. CULTFORGE’S TOTAL LIABILITY FOR CLAIMS RELATING TO
+THE SOFTWARE SHALL NOT EXCEED THE AMOUNT YOU PAID CULTFORGE FOR THE
+LAUNCHER IN THE TWELVE (12) MONTHS BEFORE THE CLAIM (OR ZERO IF FREE).
+
+1.9 Termination
+This license ends if you breach it or if CultForge terminates access for
+abuse, legal, or security reasons. On termination you must stop using and
+uninstall the Software. Sections that by nature should survive (ownership,
+disclaimer, liability, open-source notices) survive termination.
+
+1.10 Governing law
+Unless mandatory local consumer law requires otherwise, these terms are
+governed by the laws applicable to CultForge’s principal place of business,
+without regard to conflict-of-law rules. Courts in that venue have
+exclusive jurisdiction, subject to your non-waivable consumer rights.
+
+
+--------------------------------------------------------------------------------
+2. TERMS OF SERVICE
+--------------------------------------------------------------------------------
+
+2.1 Accounts
+Certain features require a CultForge account. You must provide accurate
+information, keep credentials secure, and are responsible for activity
+under your account. Do not share account access in a way that violates
+CultForge rules or applicable law.
+
+2.2 Acceptable use
+You agree not to:
+  - harass, abuse, or threaten others through CultForge features;
+  - upload or distribute illegal content, CSAM, or infringing material;
+  - disrupt servers, guilds, builds, or other users’ installs;
+  - impersonate CultForge staff or other users;
+  - circumvent bans, age gates, or access controls.
+
+2.3 Guilds, builds, and UGC
+User- or guild-generated builds, news, events, icons, and similar content
+(“UGC”) remain owned by their creators to the extent allowed by law. You
+grant CultForge a worldwide, non-exclusive license to host, display, and
+distribute UGC as needed to operate CultForge services. You represent you
+have rights to submit that UGC and that it does not violate third-party
+rights or Minecraft / platform rules.
+
+2.4 Store / Modrinth and external content
+When browsing or installing content from Modrinth or other external
+catalogs, you must comply with each project’s license and the host’s terms.
+CultForge is not the publisher of third-party mods, resource packs, or
+shaders unless CultForge explicitly marks them as official.
+
+2.5 Chloe and AI features
+Optional assistant features (“Chloe”) may use CultForge-hosted models or
+keys you supply (e.g. Gemini / OpenAI-compatible). You are responsible for
+prompts you send and for complying with the third-party AI provider’s
+terms when using your own keys. Do not submit secrets you are not allowed
+to share. CultForge may refuse or rate-limit abusive AI use.
+
+2.6 Beta / experimental features
+Features labeled beta, experimental, or preview may change or be removed
+without notice and may be less reliable.
+
+2.7 Service changes
+CultForge may modify, suspend, or discontinue online services, APIs, or
+launcher features with or without notice where reasonably necessary
+(maintenance, security, legal, or business reasons).
+
+2.8 Suspension
+CultForge may suspend or terminate accounts or launcher access for ToS /
+EULA violations, fraud, security risk, or legal requirements.
+
+
+--------------------------------------------------------------------------------
+3. PRIVACY POLICY
+--------------------------------------------------------------------------------
+
+3.1 Scope
+This Policy describes how the CultForge Launcher and related CultForge
+online services process information when you use the Software.
+
+3.2 Data we process
+
+(a) Account & profile
+    Identifiers and profile data associated with your CultForge account
+    (e.g. username, display name, avatar URLs, guild membership) when you
+    sign in. Authentication tokens for CultForge are stored locally using
+    the operating system credential store / keyring where available, not
+    in plain-text UI preferences.
+
+(b) Local preference & cache
+    UI settings, cached profile snippets, discover/news cache, and similar
+    non-secret state may be stored on disk on your device.
+
+(c) Local system metrics (on device)
+    For Performance / telemetry UI, the local sidecar may read CPU, memory,
+    disk, and GPU-related metrics (including querying tools such as
+    nvidia-smi when present). This is used to display status in the
+    Launcher. It is processed locally unless a future feature explicitly
+    asks you to share diagnostics.
+
+(d) Network requests to CultForge
+    When online features run, the Launcher and sidecar call CultForge APIs
+    (e.g. api.cultforge.com) for auth, profile, guilds, builds, news,
+    updates, and related functions. Those requests include normal
+    connection metadata (IP address, timestamps, user-agent / client
+    version) as processed by CultForge servers.
+
+(e) Updates
+    Update checks may contact CultForge update endpoints and/or GitHub
+    Releases to obtain version metadata and installers.
+
+(f) Third-party services you choose
+    - Modrinth and similar catalogs when you browse/install content.
+    - Optional AI providers when you configure your own API keys
+      (keys stay in local keyring; prompts go to that provider per your
+      configuration).
+    - Microsoft / Minecraft services if you use flows that involve them.
+    Those parties process data under their own privacy policies.
+
+(g) Logs
+    Local log files (e.g. sidecar logs) may contain diagnostic messages on
+    your machine. Avoid sharing log files publicly if they might contain
+    paths or tokens; redact before support uploads.
+
+3.3 What we do not sell
+CultForge does not sell your personal information.
+
+3.4 Purpose of processing
+Operate the Launcher and services; authenticate users; deliver builds and
+guild features; provide updates and security; show local performance UI;
+improve reliability; comply with law; and prevent abuse.
+
+3.5 Retention
+Account data is retained while your account is active and as needed for
+legal/security purposes. Local caches and logs remain on your device until
+you delete them or uninstall. Server retention follows CultForge backend
+practices.
+
+3.6 Security
+We use industry-reasonable measures (HTTPS to APIs, OS keyring for
+secrets, integrity checks for updates/artifacts where implemented). No
+method is 100% secure.
+
+3.7 Children
+The Launcher is not directed at children under 13 (or the higher age
+required in your region). Do not create an account if you are under the
+applicable age without verifiable parental consent where required.
+
+3.8 Your choices
+  - Sign out / clear local session (keyring-backed tokens).
+  - Uninstall the Launcher and delete its data directories.
+  - Avoid optional AI providers or leave keys unset.
+  - Contact CultForge support to request account-related access or
+    deletion where applicable under local law (GDPR/CCPA/etc.).
+
+3.9 International transfers
+If you access CultForge from outside the region where servers are hosted,
+your information may be processed in other countries with different data
+protection laws.
+
+3.10 Changes
+We may update this Policy. Material changes will be reflected by updating
+“Last updated” and, where appropriate, in-app or website notice.
+
+
+--------------------------------------------------------------------------------
+4. OPEN SOURCE LICENSES
+--------------------------------------------------------------------------------
+
+CultForge Launcher incorporates open-source software. CultForge’s
+proprietary code is copyright CultForge. Open-source components are
+copyright their respective authors and used under the licenses below.
+
+This Section summarizes direct dependencies. Transitive dependencies
+(npm, crates.io, Python packages) may add further MIT, Apache-2.0, BSD,
+ISC, MPL, and similar permissive licenses. Full texts of common licenses
+are widely available; key SPDX identifiers are listed. Source for
+third-party packages is available from their upstream repositories.
+
+4.1 Desktop shell (Rust / Tauri)
+  Tauri 2 and official Tauri plugins (opener, updater, process, store,
+  dialog, deep-link, single-instance) ........ Apache-2.0 OR MIT
+  serde / serde_json ......................... Apache-2.0 OR MIT
+  tokio, futures-util, once_cell ............. MIT
+  reqwest (rustls) ........................... Apache-2.0 OR MIT
+  sha1, sha2, md-5, hex, base64, uuid, url ... MIT / Apache-2.0 (as upstream)
+  zip ........................................ MIT OR Apache-2.0
+  keyring .................................... MIT OR Apache-2.0
+  rfd ........................................ MIT
+
+4.2 Frontend (JavaScript / TypeScript) — direct packages
+  react, react-dom ........................... MIT
+  react-router-dom ........................... MIT
+  vite, @vitejs/plugin-react, vitest ......... MIT
+  typescript ................................. Apache-2.0
+  tailwindcss, @tailwindcss/vite ............. MIT
+  @tauri-apps/api and @tauri-apps/plugin-* ... Apache-2.0 OR MIT
+  @heroui/react, @heroui/theme ............... MIT
+  framer-motion, animejs ..................... MIT
+  @nivo/core, @nivo/line, @nivo/pie .......... MIT
+  @phosphor-icons/react ...................... MIT
+  lucide-react ............................... ISC
+  @react-three/fiber, @react-three/drei ...... MIT
+  three ...................................... MIT
+  react-markdown, remark-gfm, rehype-* ....... MIT
+  reveal.js, simplebar-react, sonner ......... MIT
+  vaul, zustand, clsx, tailwind-merge ........ MIT
+  tanstack (meta package as declared) ........ MIT
+
+4.3 Local sidecar (Python)
+  fastapi .................................... MIT
+  uvicorn .................................... BSD-3-Clause
+  httpx ...................................... BSD-3-Clause
+  pydantic ................................... MIT
+  psutil ..................................... BSD-3-Clause
+  keyring .................................... MIT / BSD (upstream)
+  cryptography ............................... Apache-2.0 OR BSD-3-Clause
+  sqlmodel ................................... MIT
+  msgpack, websockets, typing_extensions ..... Apache-2.0 / BSD / as upstream
+  CultForge SDK modules (ctfgsdk) ............ CultForge / as distributed
+
+4.4 Build & packaging tools
+  Tools used to build installers (e.g. WiX/NSIS via Tauri on Windows,
+  AppImage/deb/dmg bundlers on CI) may include additional open-source
+  components under their own licenses. They are build-time tooling unless
+  redistributed inside the installer.
+
+4.5 License texts (short form)
+
+MIT License (summary)
+  Permission is hereby granted, free of charge, to any person obtaining a
+  copy of the software and associated documentation files (the “Software”),
+  to deal in the Software without restriction, including without limitation
+  the rights to use, copy, modify, merge, publish, distribute, sublicense,
+  and/or sell copies of the Software, subject to including the copyright
+  notice and this permission notice in all copies. THE SOFTWARE IS PROVIDED
+  “AS IS”, WITHOUT WARRANTY OF ANY KIND.
+
+Apache License 2.0 (summary)
+  You may use, reproduce, and distribute the work under Apache-2.0,
+  including patent grant terms, provided you include required notices and
+  comply with redistribution conditions. See:
+  https://www.apache.org/licenses/LICENSE-2.0
+
+ISC License (summary)
+  Similar permissive grant to MIT; provided “AS IS” without warranty.
+
+BSD-3-Clause (summary)
+  Redistribution in source and binary forms permitted with copyright
+  notice, conditions, and disclaimer retained.
+
+For complete license texts of each package, consult the package’s LICENSE
+file in its upstream repository or in your local package manager cache
+(node_modules, Cargo registry, site-packages).
+
+4.6 Notices
+  - Trademarks: “CultForge” and related marks are trademarks of CultForge.
+    Third-party names (Tauri, React, Minecraft, Microsoft, Modrinth, NVIDIA,
+    etc.) belong to their owners and are used only for identification.
+  - No open-source license grants you CultForge trademarks or the right to
+    imply CultForge endorsement of modified builds.
+
+
+--------------------------------------------------------------------------------
+5. EULA / PLATFORM COMPLIANCE (MINECRAFT & OTHERS)
+--------------------------------------------------------------------------------
+
+5.1 Not affiliated
+CultForge is an independent launcher and community platform. It is not
+affiliated with, endorsed by, or sponsored by Mojang Studios, Microsoft,
+or Notch Development AB unless CultForge expressly states a partnership.
+
+5.2 Minecraft EULA & usage guidelines
+Use of Minecraft software and multiplayer services remains subject to:
+  - Minecraft End User License Agreement
+  - Microsoft / Mojang Usage Guidelines and brand guidelines
+  - Any server rules for servers you join
+
+You must own a legitimate Minecraft license where required. The CultForge
+Launcher does not sell or grant Minecraft licenses.
+
+5.3 What CultForge distributes
+CultForge may distribute launcher binaries, CultForge-authored
+configuration, and curated build manifests that reference downloadable
+artifacts. Official Minecraft game files, if obtained, must come through
+authorized channels consistent with Mojang/Microsoft terms. Do not use
+CultForge to pirate Minecraft or redistribute proprietary Mojang assets
+unlawfully.
+
+5.4 Mods and third-party content
+Mods, resource packs, shaders, and datapacks are subject to their authors’
+licenses and to Minecraft’s rules. Installing content that violates those
+rules is at your own risk; CultForge may remove or block listings that
+violate law or platform policy.
+
+5.5 Accounts
+Microsoft account authentication (when used) is handled under Microsoft’s
+terms. CultForge account authentication is under CultForge’s terms
+(Sections 1–3).
+
+5.6 Export / sanctions
+You may not use the Software where prohibited by export control or
+sanctions laws applicable to you.
+
+
+--------------------------------------------------------------------------------
+6. CONTACT & ACKNOWLEDGEMENT
+--------------------------------------------------------------------------------
+
+Questions about this file: contact CultForge via cultforge.com support
+channels.
+
+BY USING CULTFORGE LAUNCHER YOU ACKNOWLEDGE THAT YOU HAVE READ THIS
+DOCUMENT (EULA, TERMS, PRIVACY, OPEN SOURCE NOTICES, AND COMPLIANCE
+NOTES) AND AGREE TO BE BOUND BY THE APPLICABLE SECTIONS.
+
+
+END OF FILE

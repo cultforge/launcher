@@ -1,4 +1,5 @@
 import { ClientHttpError, send, sendMutate } from "./client";
+import { sortChatChronologically } from "./chatOrdering";
 import {
   CacheKeys,
   cachedRead,
@@ -237,10 +238,10 @@ export async function fetchDmHistory(
           limit: String(limit),
         });
         const rows = unwrapList(raw, ["messages", "data"]);
-        return rows
+        const mapped = rows
           .map(mapDmMessage)
-          .filter((x): x is DmMessage => Boolean(x))
-          .reverse();
+          .filter((x): x is DmMessage => Boolean(x));
+        return sortChatChronologically(mapped);
       },
     });
     return data;

@@ -2,18 +2,39 @@ import { useEffect, useMemo, useState } from "react";
 import { ResponsiveLine } from "@nivo/line";
 import {
   pingSeries,
-  playersOnServer,
   serverCompatibility,
+  guildServerJoinAddress,
+  guildServerConfiguredAddress,
   type GuildServer,
   type ServerCompatibility,
 } from "../../../data/guilds";
 import { friendByName } from "../../../data/friends";
 import { cn } from "../../../lib/cn";
+import {
+  listGuildAgentRuntime,
+  type CultAgentRuntimeSnapshot,
+} from "../../../lib/cultAgentApi";
 import { useBuildStore } from "../../../stores/build";
 import { useProfileRouteStore } from "../../../stores/profileRoute";
 import { useGuildStore } from "../../../stores/guilds";
-import { useNavigationStore } from "../../../typlibs";
+import { useGuildAgentPresenceStore } from "../../../stores/guildAgentPresence";
+import { goHomeBuilds } from "../../../lib/homeNav";
 import { EntityImage } from "../../EntityImage";
+
+function presenceEventLabel(eventType: string, name: string | null | undefined): string {
+  const who = (name || "Someone").trim();
+  const t = eventType.toLowerCase();
+  if (t.includes("join")) return `${who} joined`;
+  if (t.includes("leave") || t.includes("quit")) return `${who} left`;
+  if (t.includes("death") || t.includes("died")) return `${who} died`;
+  if (t.includes("advancement")) return `${who} got an advancement`;
+  return `${who} · ${eventType}`;
+}
+
+function runtimeLooksOnline(state: string | null | undefined): boolean {
+  const s = (state ?? "").toLowerCase();
+  return s.includes("run") || s.includes("online") || s === "started";
+}
 
 const chartTheme = {
   text: { fill: "var(--color-text-secondary)", fontSize: 10 },
@@ -40,7 +61,9 @@ function pingColor(ms: number) {
 }
 
 function compatibilityLabel(value: ServerCompatibility) {
-  if (value.state === "ready") return "Build ready";
+  if (value.state === "ready") {
+    return value.build ? "Build ready" : "Open to join";
+  }
   if (value.state === "update-required") return "Update required";
   return "Build missing";
 }
@@ -50,15 +73,46 @@ function ServerCard({
   selected,
   compatibility,
   liveStatus,
+  liveOnline,
+  livePlayers,
+  livePing,
   onSelect,
 }: {
   server: GuildServer;
   selected: boolean;
   compatibility: ServerCompatibility;
   liveStatus?: string;
+  liveOnline?: boolean | null;
+  livePlayers?: { online: number; max: number } | null;
+  livePing?: number | null;
   onSelect: () => void;
 }) {
-  const fullness = Math.round((server.playersOnline / server.playersMax) * 100);
+  const playersOnline = livePlayers?.online ?? server.playersOnline;
+  const playersMax = livePlayers?.max ?? server.playersMax;
+  const pingMs = livePing ?? (server.pingMs > 0 ? server.pingMs : 0);
+  const fullness = Math.round(
+    (playersOnline / Math.max(1, playersMax || playersOnline || 1)) * 100,
+  );
+  const badgeOnline =
+    liveOnline === true
+      ? true
+      : liveOnline === false
+        ? false
+        : server.status === "online"
+          ? true
+          : server.status === "maintenance"
+            ? false
+            : null;
+  const badgeLabel =
+    liveStatus && liveStatus !== "…"
+      ? liveStatus
+      : badgeOnline === true
+        ? "Online"
+        : badgeOnline === false
+          ? "Offline"
+          : server.status === "maintenance"
+            ? "Maintenance"
+            : "Checking…";
   return (
     <button
       type="button"
@@ -75,7 +129,7 @@ function ServerCard({
         <EntityImage
           kind="server"
           entityId={server.id}
-          source={server.thumbnail}
+          source={server.coverUrl || server.thumbnail}
           alt={`${server.name} server artwork`}
           className="absolute inset-0 h-full w-full"
         />
@@ -84,23 +138,41 @@ function ServerCard({
           <span
             className={cn(
               "h-1.5 w-1.5 rounded-full",
-              server.status === "online"
+              badgeOnline === true
                 ? "bg-primary-base"
-                : server.status === "maintenance"
-                  ? "bg-state-warning"
-                  : "bg-text-disabled",
+                : badgeOnline === false
+                  ? "bg-text-disabled"
+                  : server.status === "maintenance"
+                    ? "bg-state-warning"
+                    : "bg-text-disabled animate-pulse",
             )}
           />
           <span className="text-[9px] font-semibold capitalize text-text-primary">
-            {liveStatus || server.status}
+            {badgeLabel}
           </span>
         </div>
-        <div className="absolute bottom-2.5 left-3 right-3">
-          <div className="font-sora text-[15px] font-bold text-white">
-            {server.name}
-          </div>
-          <div className="mt-0.5 text-[9px] font-mono text-white/60">
-            {server.address}
+        <div className="absolute bottom-2.5 left-3 right-3 flex items-end gap-2.5">
+          {server.iconUrl ? (
+            <EntityImage
+              kind="server"
+              entityId={`${server.id}-icon`}
+              source={server.iconUrl}
+              alt=""
+              className="h-10 w-10 shrink-0 rounded-lg border border-white/20 shadow-lg"
+            />
+          ) : null}
+          <div className="min-w-0 flex-1">
+            <div className="font-sora text-[15px] font-bold text-white">
+              {server.name}
+            </div>
+            <div className="mt-0.5 text-[9px] font-mono text-white/60">
+              {guildServerJoinAddress(server)}
+              {server.addressSource === "tunnel" ? (
+                <span className="ml-1.5 rounded bg-primary-base/25 px-1 py-px text-[8px] font-sans font-semibold uppercase tracking-wide text-primary-base">
+                  Tunnel
+                </span>
+              ) : null}
+            </div>
           </div>
         </div>
       </div>
@@ -125,15 +197,19 @@ function ServerCard({
               Players
             </div>
             <div className="mt-0.5 text-[10px] font-semibold text-text-primary">
-              {server.playersOnline}/{server.playersMax}
+              {badgeOnline === true
+                ? `${playersOnline}/${playersMax || "—"}`
+                : badgeOnline === false
+                  ? "0/—"
+                  : "—"}
             </div>
           </div>
           <div>
             <div className="text-[8px] uppercase tracking-wider text-text-disabled">
               Ping
             </div>
-            <div className={cn("mt-0.5 text-[10px] font-semibold", pingColor(server.pingMs))}>
-              {server.pingMs} ms
+            <div className={cn("mt-0.5 text-[10px] font-semibold", pingColor(pingMs))}>
+              {badgeOnline === true && pingMs > 0 ? `${pingMs} ms` : "—"}
             </div>
           </div>
           <div>
@@ -155,7 +231,9 @@ function ServerCard({
         <div className="mt-2 h-1 overflow-hidden rounded-full bg-bg-overlay">
           <div
             className="h-full rounded-full bg-primary-base/70"
-            style={{ width: `${fullness}%` }}
+            style={{
+              width: `${badgeOnline === true ? fullness : 0}%`,
+            }}
           />
         </div>
       </div>
@@ -229,17 +307,34 @@ export function ServersPanel() {
   const [mpingByAddress, setMpingByAddress] = useState<
     Record<string, string>
   >({});
+  const [liveOnlineByAddress, setLiveOnlineByAddress] = useState<
+    Record<string, boolean | null>
+  >({});
+  const [liveStatsByAddress, setLiveStatsByAddress] = useState<
+    Record<
+      string,
+      { playersOnline: number; playersMax: number; pingMs: number }
+    >
+  >({});
+  const [runtimeByServer, setRuntimeByServer] = useState<
+    Record<string, CultAgentRuntimeSnapshot>
+  >({});
   const guildId = useGuildStore((s) => s.activeGuildId);
   const joinServer = useGuildStore((s) => s.joinServer);
   const selectedId = useGuildStore((s) => s.selectedServerId);
   const setSelected = useGuildStore((s) => s.setSelectedServerId);
   const builds = useBuildStore((s) => s.builds);
   const setActiveBuild = useBuildStore((s) => s.setActive);
-  const setPrimaryTab = useNavigationStore((s) => s.setPrimaryTab);
-  const setSideItem = useNavigationStore((s) => s.setSideItem);
   const openProfile = useProfileRouteStore((s) => s.openFriend);
   const allServers = useGuildStore((s) => s.servers);
   const servers = allServers.filter((server) => server.guildId === guildId);
+  const presenceByServer = useGuildAgentPresenceStore((s) => s.byServerId);
+  const ensurePresence = useGuildAgentPresenceStore((s) => s.ensurePolling);
+  const refreshPresence = useGuildAgentPresenceStore((s) => s.refresh);
+
+  useEffect(() => {
+    ensurePresence(guildId || null);
+  }, [guildId, ensurePresence]);
 
   useEffect(() => {
     if (!servers.length) {
@@ -254,20 +349,80 @@ export function ServersPanel() {
   useEffect(() => {
     let cancelled = false;
     const tick = async () => {
-      const { queryMpingStatus, formatMpingLabel, syncMpingWatchList } =
-        await import("../../../lib/mping");
-      await syncMpingWatchList(servers.map((s) => s.address));
-      const next: Record<string, string> = {};
+      const {
+        queryMpingStatus,
+        formatMpingLabel,
+        liveOnlineFromMping,
+        applyMpingToServerStats,
+        syncMpingWatchList,
+      } = await import("../../../lib/mping");
+      await syncMpingWatchList(servers.map((s) => guildServerJoinAddress(s)));
+
+      let runtimeMap: Record<string, CultAgentRuntimeSnapshot> = {};
+      if (guildId) {
+        try {
+          const snaps = await listGuildAgentRuntime(guildId);
+          for (const snap of snaps) {
+            const sid = snap.guildServerId?.trim();
+            if (sid) runtimeMap[sid] = snap;
+          }
+        } catch {
+          /* optional */
+        }
+      }
+
+      const nextLabels: Record<string, string> = {};
+      const nextOnline: Record<string, boolean | null> = {};
+      const nextStats: Record<
+        string,
+        { playersOnline: number; playersMax: number; pingMs: number }
+      > = {};
       await Promise.all(
         servers.map(async (server) => {
-          const status = await queryMpingStatus(server.address);
-          next[server.address] = formatMpingLabel(status);
+          const addr = guildServerJoinAddress(server);
+          const status = await queryMpingStatus(addr);
+          let online = liveOnlineFromMping(status);
+          const runtime = runtimeMap[server.id];
+          const fromRuntime = runtimeLooksOnline(runtime?.state);
+          if (online !== true && fromRuntime) online = true;
+          else if (online == null && server.status === "online") online = true;
+
+          let label = formatMpingLabel(status);
+          const stats = applyMpingToServerStats(status);
+          if (online === true) {
+            const playersOnline =
+              stats?.playersOnline ?? runtime?.playerCount ?? server.playersOnline;
+            const playersMax = stats?.playersMax ?? server.playersMax;
+            nextStats[addr] = {
+              playersOnline,
+              playersMax,
+              pingMs: stats?.pingMs ?? (server.pingMs > 0 ? server.pingMs : 0),
+            };
+            if (label === "Offline" || label === "…" || label === "Checking…") {
+              label =
+                playersMax > 0
+                  ? `Online · ${playersOnline}/${playersMax}`
+                  : "Online";
+            }
+          } else if (online === false) {
+            label = "Offline";
+          } else if (label === "Offline") {
+            label = "…";
+          }
+
+          nextLabels[addr] = label;
+          nextOnline[addr] = online;
         }),
       );
-      if (!cancelled) setMpingByAddress(next);
+      if (!cancelled) {
+        setMpingByAddress(nextLabels);
+        setLiveOnlineByAddress(nextOnline);
+        setLiveStatsByAddress(nextStats);
+        setRuntimeByServer(runtimeMap);
+      }
     };
     void tick();
-    const id = window.setInterval(() => void tick(), 8000);
+    const id = window.setInterval(() => void tick(), 3000);
     return () => {
       cancelled = true;
       window.clearInterval(id);
@@ -288,11 +443,41 @@ export function ServersPanel() {
   const series = useMemo(
     () =>
       selected
-        ? [{ id: "Ping", data: pingSeries(selected.id, 24, selected.pingMs) }]
+        ? [
+            {
+              id: "Ping",
+              data: pingSeries(
+                selected.id,
+                24,
+                liveStatsByAddress[guildServerJoinAddress(selected)]?.pingMs ||
+                  (liveOnlineByAddress[guildServerJoinAddress(selected)] === true
+                    ? Math.max(1, selected.pingMs)
+                    : 0),
+              ),
+            },
+          ]
         : [],
-    [selected],
+    [selected, liveStatsByAddress, liveOnlineByAddress],
   );
-  const onlinePlayers = selected ? playersOnServer(selected.id) : [];
+  const selectedJoin = selected ? guildServerJoinAddress(selected) : "";
+  const selectedLive = selected ? liveStatsByAddress[selectedJoin] : null;
+  const selectedOnline = selected
+    ? liveOnlineByAddress[selectedJoin]
+    : null;
+  const presence = selected ? presenceByServer[selected.id] : null;
+  const onlinePlayers = presence?.names ?? [];
+  const presenceCount = presence?.count ?? 0;
+  const selectedPlayersOnline =
+    (onlinePlayers.length > 0 ? onlinePlayers.length : null) ??
+    selectedLive?.playersOnline ??
+    (selected && runtimeLooksOnline(runtimeByServer[selected.id]?.state)
+      ? runtimeByServer[selected.id]?.playerCount
+      : null) ??
+    (presenceCount > 0 ? presenceCount : null) ??
+    selected?.playersOnline ??
+    0;
+  const selectedPlayersMax = selectedLive?.playersMax ?? selected?.playersMax ?? 0;
+  const recentPresenceEvents = presence?.events ?? [];
 
   if (servers.length === 0) {
     return (
@@ -307,8 +492,7 @@ export function ServersPanel() {
     if (selectedCompatibility.build) {
       setActiveBuild(selectedCompatibility.build.id);
     }
-    setPrimaryTab("Builds");
-    setSideItem("Builds");
+    goHomeBuilds();
   };
 
   return (
@@ -323,25 +507,64 @@ export function ServersPanel() {
           </p>
         </div>
         <span className="text-[9px] uppercase tracking-[0.14em] text-text-disabled">
-          {servers.filter((server) => server.status === "online").length} online
+          {
+            Object.values(liveOnlineByAddress).filter((v) => v === true).length
+          }{" "}
+          reachable
         </span>
       </div>
 
       <div className="grid grid-cols-1 xl:grid-cols-2 gap-3">
-        {servers.map((server) => (
-          <ServerCard
-            key={server.id}
-            server={server}
-            selected={selected.id === server.id}
-            compatibility={compatibilityById[server.id]}
-            liveStatus={mpingByAddress[server.address]}
-            onSelect={() => {
-              setSelected(server.id);
-              setJoinOpenId(null);
-              setPreparedId(null);
-            }}
-          />
-        ))}
+        {servers.map((server) => {
+          const joinAddr = guildServerJoinAddress(server);
+          const live = liveStatsByAddress[joinAddr];
+          const cardPresence = presenceByServer[server.id];
+          const presenceOnline =
+            cardPresence?.names.length || cardPresence?.count || 0;
+          const view = live
+            ? {
+                ...server,
+                playersOnline: presenceOnline || live.playersOnline,
+                playersMax: live.playersMax,
+                pingMs: live.pingMs,
+              }
+            : server;
+          return (
+            <ServerCard
+              key={server.id}
+              server={view}
+              selected={selected.id === server.id}
+              compatibility={compatibilityById[server.id]}
+              liveStatus={mpingByAddress[joinAddr]}
+              liveOnline={liveOnlineByAddress[joinAddr]}
+              livePlayers={
+                liveStatsByAddress[joinAddr]
+                  ? {
+                      online:
+                        presenceOnline ||
+                        liveStatsByAddress[joinAddr].playersOnline,
+                      max: liveStatsByAddress[joinAddr].playersMax,
+                    }
+                  : runtimeLooksOnline(runtimeByServer[server.id]?.state) ||
+                      presenceOnline > 0
+                    ? {
+                        online:
+                          presenceOnline ||
+                          runtimeByServer[server.id]?.playerCount ||
+                          0,
+                        max: server.playersMax,
+                      }
+                    : null
+              }
+              livePing={liveStatsByAddress[joinAddr]?.pingMs ?? null}
+              onSelect={() => {
+                setSelected(server.id);
+                setJoinOpenId(null);
+                setPreparedId(null);
+              }}
+            />
+          );
+        })}
       </div>
 
       <section className="cf-panel overflow-hidden rounded-xl">
@@ -351,27 +574,48 @@ export function ServersPanel() {
           <EntityImage
             kind="server"
             entityId={selected.id}
-            source={selected.thumbnail}
+            source={selected.coverUrl || selected.thumbnail}
             alt={`${selected.name} server artwork`}
             className="absolute inset-0 h-full w-full"
           />
           <div className="absolute inset-0 bg-linear-to-r from-bg-app via-bg-app/85 to-bg-app/25" />
           <div className="relative flex flex-wrap items-start justify-between gap-4">
             <div className="max-w-xl">
-              <div className="flex items-center gap-2">
-                <h3 className="font-sora text-[20px] font-bold text-text-primary">
-                  {selected.name}
-                </h3>
-                <span className="rounded-md border border-border-strong bg-black/30 px-2 py-0.5 text-[9px] text-text-secondary">
-                  {selected.region}
-                </span>
+              <div className="flex items-center gap-2.5">
+                {selected.iconUrl ? (
+                  <EntityImage
+                    kind="server"
+                    entityId={`${selected.id}-icon`}
+                    source={selected.iconUrl}
+                    alt=""
+                    className="h-11 w-11 shrink-0 rounded-xl border border-white/15"
+                  />
+                ) : null}
+                <div className="min-w-0">
+                  <div className="flex items-center gap-2">
+                    <h3 className="font-sora text-[20px] font-bold text-text-primary">
+                      {selected.name}
+                    </h3>
+                    <span className="rounded-md border border-border-strong bg-black/30 px-2 py-0.5 text-[9px] text-text-secondary">
+                      {selected.region}
+                    </span>
+                  </div>
+                  <p className="mt-1 font-mono text-[11px] text-text-muted">
+                    {guildServerJoinAddress(selected)}
+                    {selected.addressSource === "tunnel" ? " · tunnel" : ""}
+                    {mpingByAddress[guildServerJoinAddress(selected)]
+                      ? ` · ${mpingByAddress[guildServerJoinAddress(selected)]}`
+                      : ""}
+                    {selected.addressSource === "tunnel" &&
+                    guildServerConfiguredAddress(selected) !==
+                      guildServerJoinAddress(selected) ? (
+                      <span className="block text-text-disabled font-sans mt-0.5">
+                        Catalog default: {guildServerConfiguredAddress(selected)}
+                      </span>
+                    ) : null}
+                  </p>
+                </div>
               </div>
-              <p className="mt-1 font-mono text-[11px] text-text-muted">
-                {selected.address}
-                {mpingByAddress[selected.address]
-                  ? ` · ${mpingByAddress[selected.address]}`
-                  : ""}
-              </p>
               <p className="mt-2 text-[11px] leading-relaxed text-text-secondary">
                 {selected.description}
               </p>
@@ -430,7 +674,9 @@ export function ServersPanel() {
               {joinMessage ?? (
                 <>
                   Build selected. Server address:{" "}
-                  <span className="font-mono">{selected.address}</span>
+                  <span className="font-mono">
+                    {guildServerJoinAddress(selected)}
+                  </span>
                 </>
               )}
             </div>
@@ -471,17 +717,41 @@ export function ServersPanel() {
             </div>
 
             <div className="xl:col-span-5 rounded-lg border border-border-subtle bg-black/15 p-3">
-              <div className="flex items-center justify-between">
+              <div className="flex items-center justify-between gap-2">
                 <h4 className="text-[10px] font-semibold uppercase tracking-[0.12em] text-text-muted">
                   Players online
                 </h4>
-                <span className="text-[10px] text-text-secondary">
-                  {selected.playersOnline}/{selected.playersMax}
-                </span>
+                <div className="flex items-center gap-2">
+                  <span className="text-[10px] text-text-secondary">
+                    {selectedOnline === true
+                      ? `${selectedPlayersOnline}/${selectedPlayersMax || "—"}`
+                      : selectedOnline === false
+                        ? "Offline"
+                        : "—"}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => void refreshPresence(guildId)}
+                    className="text-[9px] text-text-disabled hover:text-text-muted cursor-pointer"
+                  >
+                    Refresh
+                  </button>
+                </div>
               </div>
               <div className="mt-3 flex flex-col gap-1">
-                {onlinePlayers.length === 0 ? (
+                {selectedOnline !== true ? (
+                  <span className="text-[11px] text-text-muted">
+                    {selectedOnline === false
+                      ? "Server is offline."
+                      : "Waiting for live player list…"}
+                  </span>
+                ) : onlinePlayers.length === 0 && selectedPlayersOnline === 0 ? (
                   <span className="text-[11px] text-text-muted">Server is empty</span>
+                ) : onlinePlayers.length === 0 ? (
+                  <span className="text-[11px] text-text-muted">
+                    {selectedPlayersOnline} player
+                    {selectedPlayersOnline === 1 ? "" : "s"} online
+                  </span>
                 ) : (
                   onlinePlayers.map((name) => {
                     const profile = friendByName(name);
@@ -514,6 +784,18 @@ export function ServersPanel() {
                   })
                 )}
               </div>
+              {recentPresenceEvents.length > 0 ? (
+                <ul className="mt-3 space-y-1 border-t border-border-subtle pt-2">
+                  {recentPresenceEvents.slice(0, 4).map((ev) => (
+                    <li
+                      key={ev.id}
+                      className="truncate text-[10px] text-text-muted"
+                    >
+                      {presenceEventLabel(ev.eventType, ev.minecraftName)}
+                    </li>
+                  ))}
+                </ul>
+              ) : null}
             </div>
           </div>
         </div>

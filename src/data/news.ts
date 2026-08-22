@@ -1,6 +1,6 @@
-export type NewsCategory = "Launcher" | "Community" | "Packs";
+export type NewsCategory = "Launcher" | "Community" | "Packs" | "Minecraft";
 
-export type DiscoverFilter = "All" | NewsCategory;
+export type DiscoverFilter = "All" | NewsCategory | "Saved";
 
 export type NewsStory = {
   id: string;
@@ -32,6 +32,8 @@ const THUMB: Record<NewsCategory, string> = {
     "linear-gradient(135deg,#101018_0%,#1c1830_40%,#2a2048_70%,#0e0e14_100%)",
   Packs:
     "linear-gradient(135deg,#0e1218_0%,#1a2438_40%,#243050_70%,#0c1018_100%)",
+  Minecraft:
+    "linear-gradient(135deg,#0c1410_0%,#163020_40%,#1e4028_70%,#0a100c_100%)",
 };
 
 export function thumbForCategory(category: NewsCategory): string {
@@ -46,13 +48,15 @@ export const DISCOVER_FILTERS: DiscoverFilter[] = [
   "Launcher",
   "Community",
   "Packs",
+  "Minecraft",
+  "Saved",
 ];
 
 export function filterNews(
   stories: NewsStory[],
   category: DiscoverFilter,
 ): NewsStory[] {
-  if (category === "All") return stories;
+  if (category === "All" || category === "Saved") return stories;
   if (category === "Packs") {
     return stories.filter((s) => {
       if (s.category === "Packs") return true;

@@ -1,3 +1,4 @@
+import { handleAgentCommandWsMessage } from "./agentCommandEvents";
 import { chatMessageFromApiRecord } from "./guildChat";
 import { getGuild } from "../data/guilds";
 import { resolveGuildChatRole } from "./guildPermissions";
@@ -70,9 +71,11 @@ export function handleRealtimeWsMessage(payload: unknown): boolean {
 
   if (type === "guild.chat.message") {
     const body = obj.payload ?? obj;
+    const bodyRecord = asRecord(body);
+    const messageRaw = bodyRecord?.message ?? body;
+    const messageRecord = asRecord(messageRaw);
     const channelId =
-      asRecord(body)?.channel_id ??
-      asRecord(asRecord(body)?.message)?.channel_id;
+      bodyRecord?.channel_id ?? messageRecord?.channel_id;
     const guildState = useGuildStore.getState();
     const guildId = guildState.activeGuildId;
     const activeChannel = guildState.activeChannelByGuild[guildId];
@@ -83,7 +86,7 @@ export function handleRealtimeWsMessage(payload: unknown): boolean {
     ) {
       return true;
     }
-    const mapped = chatMessageFromApiRecord(body, guildId, (authorId) =>
+    const mapped = chatMessageFromApiRecord(messageRaw, guildId, (authorId) =>
       resolveGuildChatRole({
         guildId,
         authorId,
@@ -106,6 +109,10 @@ export function handleRealtimeWsMessage(payload: unknown): boolean {
     void import("../stores/chloe").then(({ useChloeStore }) => {
       void useChloeStore.getState().handleRealtimeAction(payload);
     });
+    return true;
+  }
+
+  if (handleAgentCommandWsMessage(payload)) {
     return true;
   }
 

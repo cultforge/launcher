@@ -98,7 +98,7 @@ export const DEFAULT_BUILD_CONFIG: BuildConfig = {
   wrapper: "",
   resolution: "1920x1080",
   fullscreen: false,
-  closeOnLaunch: false,
+  closeOnLaunch: true,
   dedicatedGpu: true,
 };
 
@@ -490,7 +490,13 @@ export const useBuildStore = create<BuildStore>((set, get) => ({
   setActive: (id) => {
     set({ activeId: id });
     const build = get().builds.find((b) => b.id === id);
-    if (build?.managed && build.releaseId && navigator.onLine) {
+    if (
+      build?.managed &&
+      build.releaseId &&
+      navigator.onLine &&
+      build.syncStatus !== "synced" &&
+      build.syncStatus !== "syncing"
+    ) {
       void import("../lib/guildBuildSync").then(({ syncManagedBuild }) =>
         syncManagedBuild(id, { quiet: true }).catch((e) => {
           logger.warn(

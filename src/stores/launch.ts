@@ -16,6 +16,8 @@ type LaunchStore = {
   pid: number | null;
   gameDir: string | null;
   startedMs: number | null;
+  /** True while game runs and launcher should freeze visuals / GPU work. */
+  visualIdle: boolean;
   setStarting: (starting: boolean, buildId?: string | null) => void;
   setRunning: (
     buildId: string | null,
@@ -23,6 +25,7 @@ type LaunchStore = {
     meta?: { gameDir?: string | null; startedMs?: number | null },
   ) => void;
   clearRunning: () => void;
+  setVisualIdle: (idle: boolean) => void;
   refreshStatus: () => Promise<void>;
 };
 
@@ -37,6 +40,7 @@ export const useLaunchStore = create<LaunchStore>((set) => ({
   pid: null,
   gameDir: null,
   startedMs: null,
+  visualIdle: false,
   setStarting: (starting, buildId = null) =>
     set({
       starting,
@@ -59,7 +63,16 @@ export const useLaunchStore = create<LaunchStore>((set) => ({
       startedMs: null,
       starting: false,
       startingBuildId: null,
+      visualIdle: false,
     }),
+  setVisualIdle: (idle) => {
+    set({ visualIdle: idle });
+    try {
+      document.documentElement.classList.toggle("cf-visual-idle", idle);
+    } catch {
+      // ignore
+    }
+  },
   refreshStatus: async () => {
     if (!isTauri()) {
       set({ runningBuildId: null, pid: null, gameDir: null, startedMs: null });
@@ -82,6 +95,7 @@ export const useLaunchStore = create<LaunchStore>((set) => ({
           pid: null,
           gameDir: null,
           startedMs: null,
+          visualIdle: false,
         });
       }
     } catch {

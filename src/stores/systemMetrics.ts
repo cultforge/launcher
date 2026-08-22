@@ -27,6 +27,7 @@ type SystemMetricsStore = {
   error: string | null;
   startPolling: () => void;
   stopPolling: () => void;
+  forceStopPolling: () => void;
 };
 
 let pollTimer: number | null = null;
@@ -103,6 +104,14 @@ export const useSystemMetricsStore = create<SystemMetricsStore>((set, get) => ({
   stopPolling: () => {
     subscribers = Math.max(0, subscribers - 1);
     if (subscribers > 0) return;
+    if (pollTimer != null) {
+      window.clearInterval(pollTimer);
+      pollTimer = null;
+    }
+  },
+
+  forceStopPolling: () => {
+    subscribers = 0;
     if (pollTimer != null) {
       window.clearInterval(pollTimer);
       pollTimer = null;

@@ -48,6 +48,7 @@ import {
 } from "../../../data/guilds";
 import { cn } from "../../../lib/cn";
 import { useNow } from "../../../lib/clock";
+import { isHomeBuildsView } from "../../../lib/homeNav";
 import {
   compareTimedEvents,
   getEventPhase,
@@ -144,6 +145,7 @@ function HomeGuildContext() {
   const openGuildHub = (tab: GuildHubTab = "Overview") => {
     if (active) setActiveGuild(active.id);
     setHubTab(tab);
+    useGuildStore.getState().setDiscoverOpen(false);
     setPrimaryTab("Guilds" as PrimaryTab);
     setSideItem("Guilds");
   };
@@ -1285,6 +1287,7 @@ function ContextWindow() {
     if (sideItem === "Discord") return <DiscordContext />;
     if (sideItem === "Settings") return <SettingsContext />;
     if (sideItem === "Downloads") return <DownloadsContext />;
+    if (isHomeBuildsView(primaryTab, sideItem)) return <BuildsContext />;
     return <HomeGuildContext />;
   }
 

@@ -1,4 +1,5 @@
 import { ClientHttpError, send, sendMutate } from "./client";
+import { sortChatChronologically } from "./chatOrdering";
 import type { ChatMessage, GuildRole } from "../data/guilds";
 import {
   CacheKeys,
@@ -224,13 +225,12 @@ export async function fetchChannelMessages(
           limit: "50",
         });
         const rows = unwrapList(raw, ["messages", "data"]);
-        // API returns newest-first; reverse for chronological chat UI.
-        return rows
+        const mapped = rows
           .map((row) =>
             chatMessageFromApiRecord(row, guildId, roleForAuthor),
           )
-          .filter((x): x is ChatMessage => Boolean(x))
-          .reverse();
+          .filter((x): x is ChatMessage => Boolean(x));
+        return sortChatChronologically(mapped);
       },
     });
     // Re-map roles if roster became available after cache write.

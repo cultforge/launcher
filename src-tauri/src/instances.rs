@@ -3,10 +3,10 @@
 use serde::{Deserialize, Serialize};
 use std::fs::{self, File};
 use std::io::{Read, Write};
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 use std::process::Command;
 use zip::write::SimpleFileOptions;
-use zip::ZipWriter;
+use zip::{ZipArchive, ZipWriter};
 
 const ALL_CONTENT_DIRS: &[&str] = &[
     "mods",
@@ -415,13 +415,271 @@ pub fn duplicate_build_instance(
     })
 }
 
-const ALLOWED_IMPORT_DEST: &[&str] = &["resourcepacks", "shaderpacks", "mods", "datapacks"];
+const ALLOWED_IMPORT_DEST: &[&str] = &[
+    "resourcepacks",
+    "shaderpacks",
+    "mods",
+    "datapacks",
+    "saves",
+];
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ImportReroute {
+    pub name: String,
+    pub from_kind: String,
+    pub to_kind: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ImportFilesResult {
+    pub imported: u32,
+    pub reroutes: Vec<ImportReroute>,
+}
+
+/// Sniff jar/zip contents to choose mods / resourcepacks / datapacks.
+fn sniff_content_kind(path: &Path) -> Option<&'static str> {
+    let ext = path
+        .extension()
+        .and_then(|e| e.to_str())
+        .unwrap_or("")
+        .to_ascii_lowercase();
+    if ext == "jar" {
+        return Some("mods");
+    }
+    if ext != "zip" {
+        return None;
+    }
+    let file = File::open(path).ok()?;
+    let mut archive = ZipArchive::new(file).ok()?;
+    let mut has_pack_mcmeta = false;
+    let mut has_assets = false;
+    let mut has_data = false;
+    let mut has_mod_meta = false;
+    for i in 0..archive.len() {
+        let Ok(entry) = archive.by_index(i) else {
+            continue;
+        };
+        let name = entry.name().replace('\\', "/").to_ascii_lowercase();
+        let base = name.rsplit('/').next().unwrap_or(name.as_str());
+        if base == "fabric.mod.json"
+            || base == "mods.toml"
+            || name.ends_with("/mods.toml")
+            || name == "meta-inf/mods.toml"
+            || name.ends_with("/quilt.mod.json")
+        {
+            has_mod_meta = true;
+        }
+        if base == "pack.mcmeta" || name.ends_with("/pack.mcmeta") {
+            has_pack_mcmeta = true;
+        }
+        if name.starts_with("assets/") || name.contains("/assets/") {
+            has_assets = true;
+        }
+        if name.starts_with("data/") || name.contains("/data/") {
+            has_data = true;
+        }
+    }
+    if has_mod_meta {
+        return Some("mods");
+    }
+    if has_pack_mcmeta && has_data && !has_assets {
+        return Some("datapacks");
+    }
+    if has_pack_mcmeta {
+        return Some("resourcepacks");
+    }
+    if has_data && !has_assets {
+        return Some("datapacks");
+    }
+    None
+}
+
+fn resolve_import_kind(requested: &str, path: &Path) -> String {
+    let requested = requested.trim().to_ascii_lowercase();
+    // Shader packs stay as requested (no reliable sniff).
+    if requested == "shaderpacks" {
+        return requested;
+    }
+    match sniff_content_kind(path) {
+        Some(sniffed) if sniffed != requested.as_str() => sniffed.to_string(),
+        Some(_) | None => requested,
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ImportWorldResult {
+    pub world_path: String,
+    pub world_name: String,
+}
+
+fn sanitize_world_name(raw: &str) -> String {
+    let trimmed = raw.trim();
+    let mut out = String::new();
+    for ch in trimmed.chars() {
+        if ch.is_ascii_alphanumeric() || ch == '-' || ch == '_' || ch == ' ' || ch == '.' {
+            out.push(ch);
+        } else if ch == '/' || ch == '\\' {
+            out.push('_');
+        }
+    }
+    let cleaned = out.trim().trim_matches('.').to_string();
+    if cleaned.is_empty() {
+        "Imported World".into()
+    } else {
+        cleaned.chars().take(64).collect()
+    }
+}
+
+fn unique_dir(parent: &Path, base_name: &str) -> PathBuf {
+    let base = sanitize_world_name(base_name);
+    let candidate = parent.join(&base);
+    if !candidate.exists() {
+        return candidate;
+    }
+    for i in 2..1000 {
+        let next = parent.join(format!("{base} ({i})"));
+        if !next.exists() {
+            return next;
+        }
+    }
+    parent.join(format!("{base}-{}", uuid::Uuid::new_v4()))
+}
+
+fn is_world_dir(path: &Path) -> bool {
+    path.join("level.dat").is_file()
+}
+
+fn find_world_root(extract_root: &Path) -> Result<PathBuf, String> {
+    if is_world_dir(extract_root) {
+        return Ok(extract_root.to_path_buf());
+    }
+    let entries = fs::read_dir(extract_root)
+        .map_err(|e| format!("Read extract dir: {e}"))?;
+    let mut dirs: Vec<PathBuf> = entries
+        .flatten()
+        .map(|e| e.path())
+        .filter(|p| p.is_dir())
+        .collect();
+    dirs.sort();
+    for dir in &dirs {
+        if is_world_dir(dir) {
+            return Ok(dir.clone());
+        }
+    }
+    // One more level deep (common: zip/MyWorld/.../level.dat under nested folder).
+    for dir in &dirs {
+        if let Ok(nested) = fs::read_dir(dir) {
+            for entry in nested.flatten() {
+                let path = entry.path();
+                if path.is_dir() && is_world_dir(&path) {
+                    return Ok(path);
+                }
+            }
+        }
+    }
+    Err("Zip/folder does not contain a Minecraft world (missing level.dat)".into())
+}
+
+fn extract_zip_to(archive_path: &Path, dest: &Path) -> Result<(), String> {
+    fs::create_dir_all(dest).map_err(|e| format!("Create extract dir: {e}"))?;
+    let file = File::open(archive_path).map_err(|e| format!("Open zip: {e}"))?;
+    let mut archive = ZipArchive::new(file).map_err(|e| format!("Read zip: {e}"))?;
+    for i in 0..archive.len() {
+        let mut entry = archive
+            .by_index(i)
+            .map_err(|e| format!("Zip entry: {e}"))?;
+        let rel = entry
+            .enclosed_name()
+            .ok_or_else(|| "Unsafe path in zip".to_string())?
+            .to_path_buf();
+        // Reject absolute / traversal
+        for component in rel.components() {
+            if matches!(component, Component::ParentDir | Component::RootDir) {
+                return Err("Zip contains unsafe path components".into());
+            }
+        }
+        let out = dest.join(&rel);
+        if entry.is_dir() {
+            fs::create_dir_all(&out).map_err(|e| format!("Create {}: {e}", out.display()))?;
+            continue;
+        }
+        if let Some(parent) = out.parent() {
+            fs::create_dir_all(parent)
+                .map_err(|e| format!("Create {}: {e}", parent.display()))?;
+        }
+        let mut outfile =
+            File::create(&out).map_err(|e| format!("Write {}: {e}", out.display()))?;
+        std::io::copy(&mut entry, &mut outfile)
+            .map_err(|e| format!("Extract {}: {e}", out.display()))?;
+    }
+    Ok(())
+}
+
+fn filename_from_url(url: &str) -> String {
+    url::Url::parse(url)
+        .ok()
+        .and_then(|u| {
+            u.path_segments()
+                .and_then(|mut s| s.next_back())
+                .map(|s| s.to_string())
+        })
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| "download.bin".into())
+}
+
+async fn download_url_to_file(url: &str, dest: &Path) -> Result<(), String> {
+    crate::downloads::fetch::assert_allowed_url(url)?;
+    if let Some(parent) = dest.parent() {
+        fs::create_dir_all(parent).map_err(|e| format!("Create download dir: {e}"))?;
+    }
+    let client = reqwest::Client::builder()
+        .user_agent("CultForge/2.4.0 (launcher; content-import)")
+        .redirect(reqwest::redirect::Policy::limited(8))
+        .build()
+        .map_err(|e| format!("HTTP client: {e}"))?;
+    let response = client
+        .get(url)
+        .send()
+        .await
+        .map_err(|e| format!("Download failed: {e}"))?
+        .error_for_status()
+        .map_err(|e| format!("Download HTTP error: {e}"))?;
+    let bytes = response
+        .bytes()
+        .await
+        .map_err(|e| format!("Download body: {e}"))?;
+    fs::write(dest, &bytes).map_err(|e| format!("Write download: {e}"))?;
+    Ok(())
+}
+
+fn place_world_from_dir(src_world: &Path, saves_dir: &Path) -> Result<ImportWorldResult, String> {
+    if !is_world_dir(src_world) {
+        return Err("Source is not a Minecraft world folder (missing level.dat)".into());
+    }
+    let base_name = src_world
+        .file_name()
+        .map(|s| s.to_string_lossy().to_string())
+        .unwrap_or_else(|| "Imported World".into());
+    let dest = unique_dir(saves_dir, &base_name);
+    let name = dest
+        .file_name()
+        .map(|s| s.to_string_lossy().to_string())
+        .unwrap_or(base_name);
+    copy_dir_filtered(src_world, &dest)?;
+    Ok(ImportWorldResult {
+        world_path: dest.to_string_lossy().to_string(),
+        world_name: name,
+    })
+}
 
 #[tauri::command]
 pub fn open_instance_subdir(build_id: String, subdir: String) -> Result<(), String> {
     let safe = sanitize_build_id(&build_id)?;
     let kind = subdir.trim().to_ascii_lowercase();
-    if !ALLOWED_IMPORT_DEST.iter().any(|s| *s == kind) && kind != "saves" {
+    if !ALLOWED_IMPORT_DEST.iter().any(|s| *s == kind) {
         return Err(format!("Unsupported subdir: {subdir}"));
     }
     let root = default_instances_root().join(&safe).join(&kind);
@@ -435,17 +693,40 @@ pub fn open_instance_subdir(build_id: String, subdir: String) -> Result<(), Stri
 #[tauri::command]
 pub fn pick_content_files(kind: String) -> Result<Vec<String>, String> {
     let kind = kind.trim().to_ascii_lowercase();
+    if kind == "worlds-folder" || kind == "saves-folder" {
+        let folders = rfd::FileDialog::new()
+            .set_title("Import world folder")
+            .pick_folders();
+        return Ok(folders
+            .unwrap_or_default()
+            .into_iter()
+            .map(|p| p.to_string_lossy().to_string())
+            .collect());
+    }
     let title = match kind.as_str() {
         "resourcepacks" => "Add resource packs",
         "shaderpacks" => "Add shader packs",
         "mods" => "Add mods",
+        "datapacks" => "Add datapacks",
+        "worlds" | "saves" => "Import world zip",
         _ => "Add content files",
     };
-    let files = rfd::FileDialog::new()
-        .set_title(title)
-        .add_filter("Zip / jar", &["zip", "jar"])
-        .add_filter("All files", &["*"])
-        .pick_files();
+    let mut dialog = rfd::FileDialog::new().set_title(title);
+    dialog = match kind.as_str() {
+        "mods" => dialog
+            .add_filter("Jar mods", &["jar"])
+            .add_filter("All files", &["*"]),
+        "worlds" | "saves" => dialog
+            .add_filter("World zip", &["zip"])
+            .add_filter("All files", &["*"]),
+        "datapacks" | "resourcepacks" | "shaderpacks" => dialog
+            .add_filter("Zip", &["zip"])
+            .add_filter("All files", &["*"]),
+        _ => dialog
+            .add_filter("Zip / jar", &["zip", "jar"])
+            .add_filter("All files", &["*"]),
+    };
+    let files = dialog.pick_files();
     Ok(files
         .unwrap_or_default()
         .into_iter()
@@ -458,15 +739,18 @@ pub fn import_instance_files(
     build_id: String,
     dest_kind: String,
     paths: Vec<String>,
-) -> Result<u32, String> {
-    let kind = dest_kind.trim().to_ascii_lowercase();
-    if !ALLOWED_IMPORT_DEST.iter().any(|s| *s == kind) {
+) -> Result<ImportFilesResult, String> {
+    let requested = dest_kind.trim().to_ascii_lowercase();
+    if !ALLOWED_IMPORT_DEST.iter().any(|s| *s == requested) {
         return Err(format!("Unsupported dest kind: {dest_kind}"));
     }
+    if requested == "saves" {
+        return Err("Use import_world for Minecraft saves".into());
+    }
     let safe = sanitize_build_id(&build_id)?;
-    let dest_dir = default_instances_root().join(&safe).join(&kind);
-    ensure_dir(&dest_dir)?;
+    let instance = default_instances_root().join(&safe);
     let mut count = 0u32;
+    let mut reroutes = Vec::new();
     for raw in paths {
         let src = PathBuf::from(raw.trim());
         if !src.exists() {
@@ -474,8 +758,24 @@ pub fn import_instance_files(
         }
         let name = src
             .file_name()
-            .ok_or_else(|| format!("Invalid path: {}", src.display()))?;
-        let dest = dest_dir.join(name);
+            .ok_or_else(|| format!("Invalid path: {}", src.display()))?
+            .to_os_string();
+        let name_str = name.to_string_lossy().to_string();
+        let kind = if src.is_file() {
+            resolve_import_kind(&requested, &src)
+        } else {
+            requested.clone()
+        };
+        if kind != requested {
+            reroutes.push(ImportReroute {
+                name: name_str.clone(),
+                from_kind: requested.clone(),
+                to_kind: kind.clone(),
+            });
+        }
+        let dest_dir = instance.join(&kind);
+        ensure_dir(&dest_dir)?;
+        let dest = dest_dir.join(&name);
         if src.is_dir() {
             let _ = copy_dir_filtered(&src, &dest)?;
             count += 1;
@@ -487,7 +787,209 @@ pub fn import_instance_files(
             count += 1;
         }
     }
-    Ok(count)
+    Ok(ImportFilesResult {
+        imported: count,
+        reroutes,
+    })
+}
+
+/// Import a world from a folder path, zip path, or https URL into `saves/`.
+#[tauri::command]
+pub async fn import_world(
+    build_id: String,
+    source: String,
+    source_kind: Option<String>,
+) -> Result<ImportWorldResult, String> {
+    let safe = sanitize_build_id(&build_id)?;
+    let instance = default_instances_root().join(&safe);
+    let saves = instance.join("saves");
+    ensure_dir(&saves)?;
+
+    let raw = source.trim().to_string();
+    if raw.is_empty() {
+        return Err("Missing world source".into());
+    }
+
+    let kind = source_kind
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(|s| s.to_ascii_lowercase())
+        .unwrap_or_else(|| {
+            if raw.starts_with("https://") || raw.starts_with("http://") {
+                "url".into()
+            } else {
+                let p = PathBuf::from(&raw);
+                if p.is_dir() {
+                    "folder".into()
+                } else {
+                    "zip".into()
+                }
+            }
+        });
+
+    match kind.as_str() {
+        "folder" => {
+            let src = PathBuf::from(&raw);
+            place_world_from_dir(&src, &saves)
+        }
+        "zip" => {
+            let zip_path = PathBuf::from(&raw);
+            if !zip_path.is_file() {
+                return Err(format!("Zip not found: {}", zip_path.display()));
+            }
+            let staging = instance
+                .join(".cultforge-cache")
+                .join("world-import")
+                .join(uuid::Uuid::new_v4().to_string());
+            extract_zip_to(&zip_path, &staging)?;
+            let world_src = find_world_root(&staging)?;
+            let result = place_world_from_dir(&world_src, &saves);
+            let _ = fs::remove_dir_all(&staging);
+            result
+        }
+        "url" => {
+            if !raw.starts_with("https://") {
+                return Err("Only https:// URLs are allowed for world import".into());
+            }
+            let staging_root = instance
+                .join(".cultforge-cache")
+                .join("world-import")
+                .join(uuid::Uuid::new_v4().to_string());
+            ensure_dir(&staging_root)?;
+            let filename = filename_from_url(&raw);
+            let download_path = staging_root.join(&filename);
+            download_url_to_file(&raw, &download_path).await?;
+
+            let result = if download_path
+                .extension()
+                .and_then(|e| e.to_str())
+                .map(|e| e.eq_ignore_ascii_case("zip"))
+                .unwrap_or(false)
+                || filename.to_ascii_lowercase().contains(".zip")
+            {
+                let extract_dir = staging_root.join("extract");
+                extract_zip_to(&download_path, &extract_dir)?;
+                let world_src = find_world_root(&extract_dir)?;
+                place_world_from_dir(&world_src, &saves)
+            } else if download_path.is_dir() {
+                place_world_from_dir(&download_path, &saves)
+            } else {
+                // Treat non-zip download as a zip anyway if magic fails — try extract.
+                let extract_dir = staging_root.join("extract");
+                match extract_zip_to(&download_path, &extract_dir) {
+                    Ok(()) => {
+                        let world_src = find_world_root(&extract_dir)?;
+                        place_world_from_dir(&world_src, &saves)
+                    }
+                    Err(err) => Err(format!(
+                        "URL download is not a usable world zip: {err}"
+                    )),
+                }
+            };
+            let _ = fs::remove_dir_all(&staging_root);
+            result
+        }
+        other => Err(format!("Unsupported world source kind: {other}")),
+    }
+}
+
+/// Download an allowlisted HTTPS URL into mods/resourcepacks/shaderpacks/datapacks.
+#[tauri::command]
+pub async fn import_content_url(
+    build_id: String,
+    dest_kind: String,
+    url: String,
+) -> Result<ImportFilesResult, String> {
+    let requested = dest_kind.trim().to_ascii_lowercase();
+    if !ALLOWED_IMPORT_DEST.iter().any(|s| *s == requested) || requested == "saves" {
+        return Err(format!("Unsupported dest kind: {dest_kind}"));
+    }
+    let raw = url.trim();
+    if !raw.starts_with("https://") {
+        return Err("Only https:// URLs are allowed".into());
+    }
+    crate::downloads::fetch::assert_allowed_url(raw)?;
+
+    let safe = sanitize_build_id(&build_id)?;
+    let instance = default_instances_root().join(&safe);
+    let staging = instance
+        .join(".cultforge-cache")
+        .join("content-import")
+        .join(uuid::Uuid::new_v4().to_string());
+    ensure_dir(&staging)?;
+
+    let mut filename = filename_from_url(raw);
+    if let Ok(decoded) = urlencoding_decode(&filename) {
+        if !decoded.is_empty() {
+            filename = decoded;
+        }
+    }
+    let safe_name = crate::downloads::install::sanitize_filename(&filename)
+        .unwrap_or_else(|_| format!("download-{}", uuid::Uuid::new_v4()));
+    let staged = staging.join(&safe_name);
+    download_url_to_file(raw, &staged).await?;
+
+    let kind = resolve_import_kind(&requested, &staged);
+    let mut reroutes = Vec::new();
+    if kind != requested {
+        reroutes.push(ImportReroute {
+            name: safe_name.clone(),
+            from_kind: requested.clone(),
+            to_kind: kind.clone(),
+        });
+    }
+    let dest_dir = instance.join(&kind);
+    ensure_dir(&dest_dir)?;
+    let dest = dest_dir.join(&safe_name);
+    if dest.exists() {
+        let _ = fs::remove_file(&dest);
+    }
+    fs::rename(&staged, &dest).or_else(|_| {
+        fs::copy(&staged, &dest).map_err(|e| format!("Copy download: {e}"))?;
+        let _ = fs::remove_file(&staged);
+        Ok::<(), String>(())
+    })?;
+    let _ = fs::remove_dir_all(&staging);
+
+    Ok(ImportFilesResult {
+        imported: 1,
+        reroutes,
+    })
+}
+
+fn urlencoding_decode(input: &str) -> Result<String, ()> {
+    let bytes = percent_encoding_decode(input.as_bytes());
+    String::from_utf8(bytes).map_err(|_| ())
+}
+
+fn percent_encoding_decode(input: &[u8]) -> Vec<u8> {
+    let mut out = Vec::with_capacity(input.len());
+    let mut i = 0;
+    while i < input.len() {
+        match input[i] {
+            b'%' if i + 2 < input.len() => {
+                let h = (input[i + 1] as char).to_digit(16);
+                let l = (input[i + 2] as char).to_digit(16);
+                if let (Some(h), Some(l)) = (h, l) {
+                    out.push((h * 16 + l) as u8);
+                    i += 3;
+                    continue;
+                }
+                out.push(input[i]);
+                i += 1;
+            }
+            b'+' => {
+                out.push(b' ');
+                i += 1;
+            }
+            c => {
+                out.push(c);
+                i += 1;
+            }
+        }
+    }
+    out
 }
 
 fn zip_add_file(

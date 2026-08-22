@@ -13,6 +13,16 @@ import { useBuildStore } from "../../../stores/build";
 import { useLibraryContentStore } from "../../../stores/libraryContent";
 import { ContentListShell, EnableToggle } from "./ContentListShell";
 import { ManagedBuildBanner } from "./ManagedBuildBanner";
+import {
+  importInstanceFiles,
+  openInstanceSubdir,
+  pickContentFiles,
+} from "../../../lib/buildMeta";
+import { ImportUrlModal } from "../../modals/ImportUrlModal";
+import {
+  importContentFromUrl,
+  isImportCancelled,
+} from "../../../lib/contentImport";
 
 const FILTERS: ContentFilter[] = ["All", "Enabled", "Disabled", "Updates"];
 
@@ -92,12 +102,16 @@ function ModRow({
 
 export function ModsPanel() {
   const managed = useBuildStore((s) => s.active().managed);
+  const buildId = useBuildStore((s) => s.activeId);
+  const location = useBuildStore((s) => s.active().location);
   const libraryItems = useLibraryContentStore((s) => s.items);
   const scanning = useLibraryContentStore((s) => s.scanning);
   const setModEnabled = useLibraryContentStore((s) => s.setModEnabled);
+  const scan = useLibraryContentStore((s) => s.scan);
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState<ContentFilter>("All");
   const [busyId, setBusyId] = useState<string | null>(null);
+  const [urlOpen, setUrlOpen] = useState(false);
 
   const items = useMemo<ModItem[]>(
     () =>
@@ -124,29 +138,92 @@ export function ModsPanel() {
     }
   };
 
+  const onOpenFolder = () => {
+    void openInstanceSubdir(buildId, "mods").catch((err) => {
+      toast.error(err instanceof Error ? err.message : "Could not open folder");
+    });
+  };
+
+  const onAddMod = async () => {
+    try {
+      const paths = await pickContentFiles("mods");
+      if (!paths.length) return;
+      const result = await importInstanceFiles(buildId, "mods", paths);
+      if (result.reroutes.length) {
+        toast.message(`Routed “${result.reroutes[0].name}” to ${result.reroutes[0].toKind}`);
+      }
+      if (location) await scan(location);
+      const n = result.imported;
+      toast.success(n ? `Added ${n} mod${n === 1 ? "" : "s"}` : "No files imported");
+    } catch (err) {
+      if (!isImportCancelled(err)) {
+        toast.error(err instanceof Error ? err.message : "Could not add mod");
+      }
+    }
+  };
+
   return (
-    <ContentListShell
-      search={search}
-      onSearchChange={setSearch}
-      searchPlaceholder="Search mods…"
-      filters={FILTERS}
-      filter={filter}
-      onFilterChange={setFilter}
-      secondaryAction={managed ? undefined : { label: "Open folder" }}
-      primaryAction={managed ? undefined : { label: "Add mod" }}
-      note={managed ? <ManagedBuildBanner /> : undefined}
-      empty={filtered.length === 0}
-      emptyLabel={scanning ? "Scanning mods…" : "No mods found in this build"}
-    >
-      {filtered.map((m) => (
-        <ModRow
-          key={m.id}
-          item={m}
-          busy={busyId === m.id}
-          locked={managed}
-          onToggle={onToggle}
-        />
-      ))}
-    </ContentListShell>
+    <>
+      <ContentListShell
+        search={search}
+        onSearchChange={setSearch}
+        searchPlaceholder="Search mods…"
+        filters={FILTERS}
+        filter={filter}
+        onFilterChange={setFilter}
+        secondaryAction={
+          managed
+            ? undefined
+            : {
+                label: "Import URL",
+                onClick: () => setUrlOpen(true),
+              }
+        }
+        primaryAction={
+          managed
+            ? undefined
+            : {
+                label: "Add mod",
+                onClick: () => void onAddMod(),
+              }
+        }
+        note={
+          managed ? (
+            <ManagedBuildBanner />
+          ) : (
+            <p className="text-[11px] text-text-muted px-0.5">
+              <button
+                type="button"
+                onClick={onOpenFolder}
+                className="underline underline-offset-2 hover:text-text-secondary cursor-pointer"
+              >
+                Open mods folder
+              </button>
+            </p>
+          )
+        }
+        empty={filtered.length === 0}
+        emptyLabel={scanning ? "Scanning mods…" : "No mods found in this build"}
+      >
+        {filtered.map((m) => (
+          <ModRow
+            key={m.id}
+            item={m}
+            busy={busyId === m.id}
+            locked={managed}
+            onToggle={onToggle}
+          />
+        ))}
+      </ContentListShell>
+      <ImportUrlModal
+        open={urlOpen}
+        title="Import mod from URL"
+        onClose={() => setUrlOpen(false)}
+        onSubmit={async (url) => {
+          await importContentFromUrl("mods", url);
+          toast.success("Mod imported");
+        }}
+      />
+    </>
   );
 }

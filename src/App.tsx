@@ -9,6 +9,7 @@ import { startLocalContentPipeline } from "./lib/bootScan";
 import { health, waitForClient } from "./lib/client";
 import { startClientLogStream } from "./lib/clientLogSocket";
 import {
+  handleContentHref,
   isCultforgeDeepLink,
   navigateCultforgeDeepLink,
 } from "./lib/deepLinks";
@@ -65,7 +66,12 @@ function App() {
 
     const applyUrls = (urls: string[]) => {
       for (const url of urls) {
-        if (!url || !isCultforgeDeepLink(url)) continue;
+        if (!url) continue;
+        if (handleContentHref(url)) {
+          logger.info(`Deep link: ${url}`);
+          continue;
+        }
+        if (!isCultforgeDeepLink(url)) continue;
         logger.info(`Deep link: ${url}`);
         navigateCultforgeDeepLink(url);
       }
@@ -164,12 +170,12 @@ function App() {
       }
       const lobby = useLobbyMusicStore.getState();
       lobby.setPlaying(true);
-      await lobbyAudioStart(lobby.volume, lobby.muted).catch((err) => {
+      // Fire-and-forget: do not block first paint on audio decode.
+      void lobbyAudioStart(lobby.volume, lobby.muted).catch((err) => {
         logger.warn(
           `Lobby music start: ${err instanceof Error ? err.message : String(err)}`,
         );
       });
-      await new Promise((resolve) => window.setTimeout(resolve, 1500));
     };
 
     const unlockLobby = () => {
@@ -233,6 +239,7 @@ function App() {
           // /health optional; /ping already succeeded
         }
 
+        if (!cancelled) setPhase("signing-in");
         await useAppStore.getState().hydrateSession();
         await prefetch;
 

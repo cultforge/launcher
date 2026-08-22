@@ -1,11 +1,10 @@
-import { Chip } from "@heroui/react";
+import { useEffect, useRef, useState } from "react";
 import { Icon } from "../ico";
 import { AppIcons } from "../icons";
 import type { Guild } from "../../data/guilds";
-import { discordSourceForGuild, serversForGuild } from "../../data/guilds";
+import { discordSourceForGuild } from "../../data/guilds";
 import { hasDiscordSource } from "../../lib/discordWidget";
 import { cn } from "../../lib/cn";
-import { GuildSwitcher } from "./GuildSwitcher";
 import { EntityImage } from "../EntityImage";
 import { GuildIcon } from "../GuildIcon";
 import { useGuildStore } from "../../stores/guilds";
@@ -16,9 +15,30 @@ import {
 } from "../../lib/guildPermissions";
 import { useGuildModalsStore } from "../../stores/guildModals";
 
+function HeroQuickAction({
+  label,
+  icon,
+  onClick,
+}: {
+  label: string;
+  icon: keyof typeof AppIcons;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="inline-flex cursor-pointer items-center gap-1.5 rounded-lg border border-white/14 bg-black/25 px-3 py-1.5 text-[12px] font-semibold text-white/85 backdrop-blur-sm transition-colors hover:border-white/22 hover:bg-black/40 hover:text-white"
+    >
+      <Icon icon={AppIcons[icon]} size={14} />
+      {label}
+    </button>
+  );
+}
+
 export function GuildHero({ guild }: { guild: Guild }) {
-  const xpPct = Math.min(100, Math.round((guild.xp / guild.xpMax) * 100));
   const members = useGuildStore((state) => state.members);
+  const servers = useGuildStore((state) => state.servers);
   const discordOverrides = useGuildStore((state) => state.discordOverrides);
   const setHubTab = useGuildStore((state) => state.setHubTab);
   const userId = useAppStore((state) => state.currentUser?.id ?? "");
@@ -28,149 +48,156 @@ export function GuildHero({ guild }: { guild: Guild }) {
   const online = members.filter(
     (member) => member.guildId === guild.id && member.status === "online",
   ).length;
-  const serverCount = serversForGuild(guild.id).length;
+  const hasServers = servers.some((server) => server.guildId === guild.id);
   const discordSource = discordSourceForGuild(guild.id, discordOverrides);
   const hasDiscord = hasDiscordSource(discordSource);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const menuRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!menuOpen) return;
+    const onPointer = (event: MouseEvent) => {
+      if (!menuRef.current?.contains(event.target as Node)) {
+        setMenuOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", onPointer);
+    return () => document.removeEventListener("mousedown", onPointer);
+  }, [menuOpen]);
+
+  const onlineHint =
+    online > 0
+      ? `${online} here tonight`
+      : "The hall is open";
 
   return (
-    <section className="cf-panel rounded-xl overflow-hidden relative min-h-50">
-      <EntityImage
-        kind="guild"
-        entityId={guild.id}
-        source={guild.banner}
-        alt={`${guild.name} guild artwork`}
-        className="absolute inset-0 h-full w-full"
-      />
-      <div className="absolute inset-0 bg-linear-to-t from-black/90 via-black/50 to-black/25" />
-      <div className="absolute inset-0 bg-linear-to-r from-black/70 via-black/20 to-transparent" />
+    <section className="guild-hero relative rounded-xl border border-white/8">
+      <div className="absolute inset-0 overflow-hidden rounded-xl">
+        <EntityImage
+          kind="guild"
+          entityId={guild.id}
+          source={guild.banner}
+          alt={`${guild.name} guild artwork`}
+          className="h-full w-full object-cover"
+        />
+        <div className="absolute inset-0 bg-linear-to-t from-black/92 via-black/58 to-black/28" />
+      </div>
 
-      <div className="relative z-10 flex flex-col min-h-50">
-        {/* Toolbar: guild switcher */}
-        <div className="flex items-center gap-3 px-3.5 py-2.5 border-b border-white/8 bg-black/45">
-          <span className="text-[9px] font-semibold uppercase tracking-[0.16em] text-text-disabled shrink-0 hidden sm:block">
-            Your guilds
-          </span>
-          <div className="min-w-0 flex-1">
-            <GuildSwitcher embedded />
-          </div>
-        </div>
-
-        {/* Identity */}
-        <div className="flex flex-1 items-end gap-4 p-4 pt-5">
+      <div className="relative z-10 flex min-h-36 flex-col justify-end gap-4 p-4 sm:min-h-40 sm:p-5">
+        <div className="flex items-end gap-4">
           <GuildIcon
             src={guild.icon}
             name={guild.name}
             className={cn(
-              "h-18 w-18 rounded-2xl border border-white/20 bg-linear-to-br text-bg-app text-[18px]",
+              "h-14 w-14 shrink-0 rounded-xl border border-white/15 bg-linear-to-br text-bg-app text-[14px] sm:h-16 sm:w-16",
               guild.accent,
             )}
           />
 
-          <div className="flex-1 min-w-0 pb-0.5">
-            <div className="flex flex-wrap items-center gap-2">
-              <h2 className="font-sora text-[22px] font-bold text-white truncate">
+          <div className="min-w-0 flex-1 pb-0.5">
+            <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+              <h2 className="truncate font-sora text-[1.375rem] font-bold leading-tight text-white sm:text-[1.5rem]">
                 {guild.name}
               </h2>
-              <Chip size="sm" variant="soft" color="success">
-                <Chip.Label className="text-[10px] font-mono text-primary-base">
-                  [{guild.tag}]
-                </Chip.Label>
-              </Chip>
-              {membership && (
-                <Chip size="sm" variant="soft" color="default">
-                  <Chip.Label className="text-[9px]">
-                    Your role: {membership.role}
-                  </Chip.Label>
-                </Chip>
-              )}
+              <span className="rounded-md bg-white/10 px-1.5 py-0.5 font-mono text-[10px] text-white/70">
+                {guild.tag}
+              </span>
             </div>
-            <p className="text-[13px] text-white/65 mt-1 max-w-xl line-clamp-2">
-              {guild.motto}
-            </p>
-
-            <div className="mt-3 flex flex-wrap items-center gap-2">
-              <StatChip label="Level" value={String(guild.level)} />
-              <StatChip label="Members" value={String(guild.memberCount)} />
-              <StatChip label="Online" value={String(online)} accent />
-              <StatChip label="Servers" value={String(serverCount)} />
-            </div>
-
-            <div className="mt-3 max-w-md">
-              <div className="flex justify-between text-[10px] text-white/45 mb-1">
-                <span>Season XP</span>
-                <span className="tabular-nums">
-                  {guild.xp.toLocaleString()} / {guild.xpMax.toLocaleString()}
-                </span>
-              </div>
-              <div className="h-1.5 rounded-full bg-white/10 overflow-hidden">
-                <div
-                  className="h-full rounded-full bg-linear-to-r from-primary-muted to-primary-base"
-                  style={{ width: `${xpPct}%` }}
-                />
-              </div>
-            </div>
+            {guild.motto ? (
+              <p className="mt-1 max-w-2xl text-[13px] leading-snug text-white/70">
+                {guild.motto}
+              </p>
+            ) : (
+              <p className="mt-1 max-w-2xl text-[13px] leading-snug text-white/55">
+                Your crew&apos;s hall — meet up, play, and hang out.
+              </p>
+            )}
+            <p className="mt-2 text-[12px] text-white/45">{onlineHint}</p>
           </div>
 
-          <div className="hidden sm:flex flex-col gap-2 shrink-0 self-end">
-            {hasDiscord && (
-              <button
-                type="button"
-                onClick={() => setHubTab("Discord")}
-                className="flex items-center justify-center gap-2 px-5 py-2.5 rounded-lg text-[12px] font-semibold border border-[#5865F2]/35 bg-[#5865F2]/10 text-white hover:bg-[#5865F2]/20 cursor-pointer"
-              >
-                <Icon icon={AppIcons.Discord} size={14} />
-                Open Discord
-              </button>
-            )}
-            {capabilities.inviteMembers && (
-              <button
-                type="button"
-                onClick={() => openModal("invite")}
-                className="cf-btn-primary px-5 py-2.5 rounded-lg text-[12px] font-semibold cursor-pointer"
-              >
-                Invite
-              </button>
-            )}
+          <div className="relative z-20 shrink-0 self-end pb-0.5" ref={menuRef}>
             <button
               type="button"
-              onClick={() =>
-                capabilities.openManagement
-                  ? setHubTab("Manage")
-                  : openModal("leave")
-              }
-              className="px-5 py-2 text-[11px] font-semibold rounded-lg border border-white/15 text-white/60 hover:text-white hover:bg-white/6 cursor-pointer"
+              aria-expanded={menuOpen}
+              aria-haspopup="menu"
+              aria-label="More guild options"
+              onClick={() => setMenuOpen((open) => !open)}
+              className="flex h-9 w-9 cursor-pointer items-center justify-center rounded-lg border border-white/12 bg-black/30 text-white/70 transition-colors hover:bg-black/45 hover:text-white"
             >
-              {capabilities.openManagement ? "Manage Guild" : "Leave Guild"}
+              <Icon icon={AppIcons.MoreHorizontal} size={16} />
             </button>
+            {menuOpen ? (
+              <div
+                role="menu"
+                className="absolute right-0 top-full z-50 mt-1.5 min-w-44 overflow-hidden rounded-xl border border-white/12 bg-bg-card py-1 shadow-xl"
+              >
+                {capabilities.inviteMembers ? (
+                  <button
+                    type="button"
+                    role="menuitem"
+                    onClick={() => {
+                      setMenuOpen(false);
+                      openModal("invite");
+                    }}
+                    className="flex w-full cursor-pointer px-3.5 py-2.5 text-left text-[12px] text-text-secondary hover:bg-white/5 hover:text-text-primary"
+                  >
+                    Invite friends
+                  </button>
+                ) : null}
+                {capabilities.openManagement ? (
+                  <button
+                    type="button"
+                    role="menuitem"
+                    onClick={() => {
+                      setMenuOpen(false);
+                      setHubTab("Manage");
+                    }}
+                    className="flex w-full cursor-pointer px-3.5 py-2.5 text-left text-[12px] text-text-secondary hover:bg-white/5 hover:text-text-primary"
+                  >
+                    Guild settings
+                  </button>
+                ) : null}
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={() => {
+                    setMenuOpen(false);
+                    openModal("leave");
+                  }}
+                  className="flex w-full cursor-pointer px-3.5 py-2.5 text-left text-[12px] text-state-warning hover:bg-white/5"
+                >
+                  Leave guild
+                </button>
+              </div>
+            ) : null}
           </div>
+        </div>
+
+        <div className="flex flex-wrap gap-2">
+          <HeroQuickAction
+            label="Talk"
+            icon="Global"
+            onClick={() => setHubTab("Chat")}
+          />
+          <HeroQuickAction
+            label={hasServers ? "Play" : "Worlds"}
+            icon="Servers"
+            onClick={() => setHubTab("Servers")}
+          />
+          <HeroQuickAction
+            label="Plans"
+            icon="Notifications"
+            onClick={() => setHubTab("Events")}
+          />
+          {hasDiscord ? (
+            <HeroQuickAction
+              label="Discord"
+              icon="Discord"
+              onClick={() => setHubTab("Discord")}
+            />
+          ) : null}
         </div>
       </div>
     </section>
-  );
-}
-
-function StatChip({
-  label,
-  value,
-  accent,
-}: {
-  label: string;
-  value: string;
-  accent?: boolean;
-}) {
-  return (
-    <div className="px-2.5 py-1 rounded-md border border-white/10 bg-black/35 backdrop-blur-sm">
-      <span className="text-[9px] uppercase tracking-wider text-white/40 mr-1.5">
-        {label}
-      </span>
-      <span
-        className={cn(
-          "text-[12px] font-semibold tabular-nums",
-          accent ? "text-primary-base" : "text-white/90",
-        )}
-      >
-        {value}
-      </span>
-    </div>
   );
 }

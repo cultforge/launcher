@@ -1,4 +1,4 @@
-﻿import { toast } from "sonner";
+import { toast } from "sonner";
 import { getClientOrigin, sidecarFetch, unlinkOAuthProvider } from "./client";
 import {
   createBuildBackup,
@@ -14,6 +14,7 @@ import {
   type SettingsCategory,
 } from "../stores/settingsUi";
 import { useNavigationStore, type PrimaryTab } from "../typlibs";
+import { goHomeBuilds, HOME_BUILDS_SIDE } from "./homeNav";
 import {
   inferChloeActionType,
   type ChloePendingAction,
@@ -191,13 +192,13 @@ export async function executeChloeAction(
       if (inferred === "open_settings") return openSettingsFromAction(action);
       if (inferred === "open_discord") return openHomeSide("Discord", "Opened Discord");
       if (inferred === "open_store") return openPrimary("Store");
-      if (inferred === "open_builds") return openPrimary("Builds", "Library");
+      if (inferred === "open_builds") return openPrimary("Home", HOME_BUILDS_SIDE);
       if (inferred === "open_guilds") return openPrimary("Guilds", "Guilds");
       if (inferred === "open_mods") return openPrimary("Mods");
       if (inferred === "open_downloads") return openHomeSide("Downloads", "Opened Downloads");
       if (inferred === "open_friends") return openHomeSide("Friends", "Opened Friends");
       useNavigationStore.getState().setPrimaryTab("Home" as PrimaryTab);
-      useNavigationStore.getState().setSideItem("Home");
+      useNavigationStore.getState().setSideItem(HOME_BUILDS_SIDE);
       return { ok: true, message: "Opened Home", closeDrawer: true };
     }
 
@@ -322,8 +323,9 @@ export async function executeChloeAction(
 
     case "open_builds":
     case "builds":
+      return openPrimary("Home", HOME_BUILDS_SIDE);
     case "library":
-      return openPrimary("Builds", "Library");
+      return openPrimary("Mods", "Library");
 
     case "open_guilds":
     case "guilds":

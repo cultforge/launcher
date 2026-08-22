@@ -6,6 +6,10 @@ import {
   invalidateGuildCaches,
 } from "./apiCache";
 import type { GuildServer } from "../data/guilds";
+import {
+  guildMediaUploadBody,
+  type GuildBuildImageUpload,
+} from "./guildBuildApi";
 
 export class GuildServersError extends Error {
   status: number;
@@ -25,6 +29,20 @@ export type ServerJoinResult = {
   connect?: Record<string, unknown> | null;
   deepLink?: string;
   missingMods?: unknown[];
+};
+
+export type GuildServerWritePayload = {
+  name: string;
+  description?: string;
+  serverAddress: string;
+  port?: number;
+  requiredBuild?: string;
+  buildId?: string;
+  isActive?: boolean;
+  iconUrl?: string | null;
+  coverUrl?: string | null;
+  iconUpload?: GuildBuildImageUpload | null;
+  coverUpload?: GuildBuildImageUpload | null;
 };
 
 function wrap(prefix: string, err: unknown): GuildServersError {
@@ -60,6 +78,15 @@ function unwrapOne(data: unknown, keys: string[]): unknown {
     if (obj[key] !== undefined) return obj[key];
   }
   return data;
+}
+
+function pickHttpUrl(...candidates: unknown[]): string | null {
+  for (const value of candidates) {
+    if (typeof value !== "string") continue;
+    const trimmed = value.trim();
+    if (/^https?:\/\//i.test(trimmed)) return trimmed;
+  }
+  return null;
 }
 
 const CF_SERVER_META_RE = /\n?<!--cf\s+([^>]*)-->\s*$/i;
@@ -133,34 +160,202 @@ export function serverFromApiRecord(raw: unknown): GuildServer | null {
   const guildId = String(obj.guild_id ?? "");
   const name = String(obj.name ?? "").trim();
   if (!guildId || !name) return null;
-  const address = String(obj.server_address ?? obj.address ?? "");
-  const port = typeof obj.port === "number" ? obj.port : 25565;
+
+  const configuredHost = String(
+    obj.configured_address ??
+      obj.configuredAddress ??
+      obj.server_address ??
+      obj.address ??
+      "",
+  ).trim();
+  const configuredPort =
+    typeof obj.configured_port === "number"
+      ? obj.configured_port
+      : typeof obj.configuredPort === "number"
+        ? obj.configuredPort
+        : typeof obj.port === "number"
+          ? obj.port
+          : 25565;
+
+  const effectiveHost = String(
+    obj.effective_address ??
+      obj.effectiveAddress ??
+      obj.tunnel_address ??
+      obj.tunnelAddress ??
+      "",
+  ).trim();
+  const effectivePort =
+    typeof obj.effective_port === "number"
+      ? obj.effective_port
+      : typeof obj.effectivePort === "number"
+        ? obj.effectivePort
+        : typeof obj.tunnel_port === "number"
+          ? obj.tunnel_port
+          : typeof obj.tunnelPort === "number"
+            ? obj.tunnelPort
+            : undefined;
+
+  const addressSourceRaw = String(
+    obj.address_source ?? obj.addressSource ?? "",
+  )
+    .trim()
+    .toLowerCase();
+
+  const configuredAddress =
+    configuredHost && !configuredHost.includes(":")
+      ? `${configuredHost}:${configuredPort}`
+      : configuredHost;
+
+  let effectiveAddress: string | undefined;
+  if (effectiveHost) {
+    effectiveAddress = effectiveHost.includes(":")
+      ? effectiveHost
+      : `${effectiveHost}:${effectivePort ?? 25565}`;
+  }
+
+  const useTunnel =
+    addressSourceRaw === "tunnel" ||
+    (Boolean(effectiveAddress) &&
+      effectiveAddress !== configuredAddress &&
+      addressSourceRaw !== "configured");
+
+  const address =
+    useTunnel && effectiveAddress
+      ? effectiveAddress
+      : configuredAddress || effectiveAddress || "";
+
   const extras = parseServerExtras(String(obj.description ?? ""));
   const active = obj.is_active !== false;
+  const iconUrl = pickHttpUrl(
+    obj.icon_url,
+    obj.iconUrl,
+    obj.icon,
+    obj.thumbnail_icon,
+  );
+  const coverUrl = pickHttpUrl(
+    obj.cover_url,
+    obj.coverUrl,
+    obj.cover,
+    obj.thumbnail_url,
+    obj.thumbnail,
+    obj.image_url,
+    obj.image,
+  );
+  const catalogStatus: GuildServer["status"] = !active
+    ? "offline"
+    : extras.status === "maintenance"
+      ? "maintenance"
+      : extras.status === "offline"
+        ? "offline"
+        : "online";
+
+  const tunnelUpdatedAt =
+    typeof obj.tunnel_updated_at === "string"
+      ? obj.tunnel_updated_at
+      : typeof obj.tunnelUpdatedAt === "string"
+        ? obj.tunnelUpdatedAt
+        : null;
+
   return {
     id: obj.id,
     guildId,
     name,
-    address: port && address && !address.includes(":")
-      ? `${address}:${port}`
-      : address,
+    address,
+    configuredAddress: configuredAddress || undefined,
+    configuredPort,
+    effectiveAddress,
+    effectivePort: effectivePort ?? undefined,
+    addressSource: useTunnel
+      ? "tunnel"
+      : addressSourceRaw || (configuredAddress ? "configured" : undefined),
+    tunnelUpdatedAt,
     playersOnline: 0,
     playersMax: 0,
     pingMs: 0,
     version: String(obj.required_build ?? obj.game ?? ""),
     region: extras.region,
     description: extras.description,
-    thumbnail: "",
+    thumbnail: coverUrl || iconUrl || "",
+    iconUrl,
+    coverUrl,
     tags: extras.tags,
     loader: "",
-    status: active
-      ? "online"
-      : extras.status === "maintenance"
-        ? "maintenance"
-        : "offline",
+    status: catalogStatus,
     requiredBuildId: String(obj.build_id ?? ""),
     requiredBuildVersion: String(obj.required_build ?? ""),
   };
+}
+
+/** POST /v1/guilds/{guild_id}/servers/{server_id}/icon */
+export async function uploadGuildServerIcon(
+  guildId: string,
+  serverId: string,
+  upload: GuildBuildImageUpload,
+): Promise<void> {
+  try {
+    await sendMutate(
+      "guilds",
+      "upload_or_set_server_icon",
+      {
+        guild_id: guildId,
+        server_id: serverId,
+        ...guildMediaUploadBody(upload),
+      },
+      "POST",
+    );
+  } catch (err) {
+    throw wrap("Could not upload server icon", err);
+  }
+}
+
+/** POST /v1/guilds/{guild_id}/servers/{server_id}/cover */
+export async function uploadGuildServerCover(
+  guildId: string,
+  serverId: string,
+  upload: GuildBuildImageUpload,
+): Promise<void> {
+  try {
+    await sendMutate(
+      "guilds",
+      "upload_or_set_server_cover_image",
+      {
+        guild_id: guildId,
+        server_id: serverId,
+        ...guildMediaUploadBody(upload),
+      },
+      "POST",
+    );
+  } catch (err) {
+    throw wrap("Could not upload server cover", err);
+  }
+}
+
+async function applyServerImageUploads(
+  guildId: string,
+  serverId: string,
+  payload: Pick<GuildServerWritePayload, "iconUpload" | "coverUpload">,
+): Promise<void> {
+  if (payload.iconUpload) {
+    await uploadGuildServerIcon(guildId, serverId, payload.iconUpload);
+  }
+  if (payload.coverUpload) {
+    await uploadGuildServerCover(guildId, serverId, payload.coverUpload);
+  }
+}
+
+async function refetchServer(
+  guildId: string,
+  serverId: string,
+): Promise<GuildServer | null> {
+  try {
+    const raw = await send<unknown>("guilds", "get_guild_server", {
+      guild_id: guildId,
+      server_id: serverId,
+    });
+    return serverFromApiRecord(unwrapOne(raw, ["data", "server"]));
+  } catch {
+    return null;
+  }
 }
 
 export async function fetchGuildServers(
@@ -186,15 +381,7 @@ export async function fetchGuildServers(
 
 export async function createGuildServer(
   guildId: string,
-  input: {
-    name: string;
-    description?: string;
-    serverAddress: string;
-    port?: number;
-    requiredBuild?: string;
-    buildId?: string;
-    isActive?: boolean;
-  },
+  input: GuildServerWritePayload,
 ): Promise<GuildServer> {
   try {
     const data = await sendMutate(
@@ -209,12 +396,25 @@ export async function createGuildServer(
         required_build: input.requiredBuild ?? "any",
         build_id: input.buildId,
         is_active: input.isActive ?? true,
+        icon_url: input.iconUpload ? null : (input.iconUrl ?? null),
+        cover_url: input.coverUpload ? null : (input.coverUrl ?? null),
       },
       "POST",
     );
-    await invalidateApiCache(CacheKeys.guildServers(guildId));
-    const server = serverFromApiRecord(unwrapOne(data, ["data", "server"]));
+    let server = serverFromApiRecord(unwrapOne(data, ["data", "server"]));
     if (!server) throw new GuildServersError("Create server response malformed", 502);
+    if (input.iconUpload || input.coverUpload) {
+      try {
+        await applyServerImageUploads(guildId, server.id, input);
+        server = (await refetchServer(guildId, server.id)) ?? server;
+      } catch (err) {
+        // URL fields may still apply; dedicated upload routes are newer.
+        if (!(err instanceof GuildServersError && err.status === 404)) {
+          throw err;
+        }
+      }
+    }
+    await invalidateApiCache(CacheKeys.guildServers(guildId));
     return server;
   } catch (err) {
     throw wrap("Could not create server", err);
@@ -224,18 +424,57 @@ export async function createGuildServer(
 export async function updateGuildServer(
   guildId: string,
   serverId: string,
-  patch: Record<string, unknown>,
+  patch: Record<string, unknown> &
+    Pick<
+      GuildServerWritePayload,
+      "iconUrl" | "coverUrl" | "iconUpload" | "coverUpload"
+    >,
 ): Promise<GuildServer> {
   try {
+    const body: Record<string, unknown> = {
+      guild_id: guildId,
+      server_id: serverId,
+    };
+    for (const [key, value] of Object.entries(patch)) {
+      if (
+        key === "iconUrl" ||
+        key === "coverUrl" ||
+        key === "iconUpload" ||
+        key === "coverUpload"
+      ) {
+        continue;
+      }
+      body[key] = value;
+    }
+    if (patch.iconUpload) {
+      // dedicated upload owns bytes
+    } else if (patch.iconUrl !== undefined) {
+      body.icon_url = patch.iconUrl;
+    }
+    if (patch.coverUpload) {
+      // dedicated upload owns bytes
+    } else if (patch.coverUrl !== undefined) {
+      body.cover_url = patch.coverUrl;
+    }
     const data = await sendMutate(
       "guilds",
       "update_guild_server",
-      { guild_id: guildId, server_id: serverId, ...patch },
+      body,
       "PATCH",
     );
-    await invalidateApiCache(CacheKeys.guildServers(guildId));
-    const server = serverFromApiRecord(unwrapOne(data, ["data", "server"]));
+    let server = serverFromApiRecord(unwrapOne(data, ["data", "server"]));
     if (!server) throw new GuildServersError("Update server response malformed", 502);
+    if (patch.iconUpload || patch.coverUpload) {
+      try {
+        await applyServerImageUploads(guildId, serverId, patch);
+        server = (await refetchServer(guildId, serverId)) ?? server;
+      } catch (err) {
+        if (!(err instanceof GuildServersError && err.status === 404)) {
+          throw err;
+        }
+      }
+    }
+    await invalidateApiCache(CacheKeys.guildServers(guildId));
     return server;
   } catch (err) {
     throw wrap("Could not update server", err);
@@ -292,13 +531,38 @@ export async function joinGuildServer(
     );
     const payload = asRecord(unwrapOne(data, ["data", "result"])) ?? asRecord(data);
     if (!payload) throw new GuildServersError("Join response malformed", 502);
+    const connect = asRecord(payload.connect);
+    // Prefer API effective join host when present on connect payload.
+    if (connect) {
+      const effHost = String(
+        connect.address ??
+          connect.effective_address ??
+          connect.effectiveAddress ??
+          connect.host ??
+          "",
+      ).trim();
+      const effPort =
+        typeof connect.effective_port === "number"
+          ? connect.effective_port
+          : typeof connect.effectivePort === "number"
+            ? connect.effectivePort
+            : typeof connect.port === "number"
+              ? connect.port
+              : undefined;
+      if (effHost) {
+        connect.host = effHost.includes(":")
+          ? effHost
+          : `${effHost}:${effPort ?? 25565}`;
+        if (effPort != null) connect.port = effPort;
+      }
+    }
     return {
       serverId: String(payload.server_id ?? serverId),
       guildId: String(payload.guild_id ?? guildId),
       canJoin: Boolean(payload.can_join),
       requiredBuild: String(payload.required_build ?? ""),
       message: String(payload.message ?? ""),
-      connect: asRecord(payload.connect),
+      connect,
       deepLink:
         typeof payload.deep_link === "string" ? payload.deep_link : undefined,
       missingMods: Array.isArray(payload.missing_mods)

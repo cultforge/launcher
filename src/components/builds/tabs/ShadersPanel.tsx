@@ -16,6 +16,11 @@ import {
   openInstanceSubdir,
   pickContentFiles,
 } from "../../../lib/buildMeta";
+import { ImportUrlModal } from "../../modals/ImportUrlModal";
+import {
+  importContentFromUrl,
+  isImportCancelled,
+} from "../../../lib/contentImport";
 
 const FILTERS: ContentFilter[] = ["All"];
 
@@ -86,6 +91,7 @@ function ShaderRow({
 export function ShadersPanel() {
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState<ContentFilter>("All");
+  const [urlOpen, setUrlOpen] = useState(false);
   const managed = useBuildStore((s) => s.active().managed);
   const buildId = useBuildStore((s) => s.activeId);
   const location = useBuildStore((s) => s.active().location);
@@ -151,59 +157,83 @@ export function ShadersPanel() {
     try {
       const paths = await pickContentFiles("shaderpacks");
       if (!paths.length) return;
-      const n = await importInstanceFiles(buildId, "shaderpacks", paths);
+      const result = await importInstanceFiles(buildId, "shaderpacks", paths);
       if (location) await scan(location);
+      const n = result.imported;
       toast.success(
         n ? `Added ${n} shader${n === 1 ? "" : "s"}` : "No files imported",
       );
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Could not add shader");
+      if (!isImportCancelled(err)) {
+        toast.error(err instanceof Error ? err.message : "Could not add shader");
+      }
     }
   };
 
   return (
-    <ContentListShell
-      search={search}
-      onSearchChange={setSearch}
-      searchPlaceholder="Search shaders…"
-      filters={FILTERS}
-      filter={filter}
-      onFilterChange={setFilter}
-      secondaryAction={
-        managed
-          ? undefined
-          : { label: "Open shaderpacks folder", onClick: onOpenFolder }
-      }
-      primaryAction={
-        managed
-          ? undefined
-          : { label: "Add shader", onClick: () => void onAddShader() }
-      }
-      note={
-        managed ? (
-          <ManagedBuildBanner />
-        ) : (
-          <p className="text-[11px] text-text-muted px-0.5">
-            Requires Iris (Fabric) or Oculus (Forge). Selection writes
-            options.txt shaderPack.
-          </p>
-        )
-      }
-      empty={filtered.length === 0}
-      emptyLabel={scanning ? "Scanning shaders…" : "No shader packs found"}
-    >
-      {filtered.map((s) => {
-        const fileName = fileNameById.get(s.id) ?? "";
-        return (
-          <ShaderRow
-            key={s.id}
-            item={s}
-            locked={managed}
-            active={shaderMatchesActive(fileName, activeShaderName)}
-            onSelect={() => void onSelect(s.id)}
-          />
-        );
-      })}
-    </ContentListShell>
+    <>
+      <ContentListShell
+        search={search}
+        onSearchChange={setSearch}
+        searchPlaceholder="Search shaders…"
+        filters={FILTERS}
+        filter={filter}
+        onFilterChange={setFilter}
+        secondaryAction={
+          managed
+            ? undefined
+            : {
+                label: "Import URL",
+                onClick: () => setUrlOpen(true),
+              }
+        }
+        primaryAction={
+          managed
+            ? undefined
+            : { label: "Add shader", onClick: () => void onAddShader() }
+        }
+        note={
+          managed ? (
+            <ManagedBuildBanner />
+          ) : (
+            <p className="text-[11px] text-text-muted px-0.5">
+              Requires Iris (Fabric) or Oculus (Forge). Selection writes
+              options.txt shaderPack.{" "}
+              <button
+                type="button"
+                onClick={onOpenFolder}
+                className="underline underline-offset-2 hover:text-text-secondary cursor-pointer"
+              >
+                Open shaderpacks folder
+              </button>
+            </p>
+          )
+        }
+        empty={filtered.length === 0}
+        emptyLabel={scanning ? "Scanning shaders…" : "No shader packs found"}
+      >
+        {filtered.map((s) => {
+          const fileName = fileNameById.get(s.id) ?? "";
+          return (
+            <ShaderRow
+              key={s.id}
+              item={s}
+              locked={managed}
+              active={shaderMatchesActive(fileName, activeShaderName)}
+              onSelect={() => void onSelect(s.id)}
+            />
+          );
+        })}
+      </ContentListShell>
+      <ImportUrlModal
+        open={urlOpen}
+        title="Import shader from URL"
+        onClose={() => setUrlOpen(false)}
+        onSubmit={async (url) => {
+          await importContentFromUrl("shaderpacks", url);
+          toast.success("Shader imported");
+        }}
+      />
+    </>
   );
 }

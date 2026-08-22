@@ -88,6 +88,18 @@ pub struct GuildManifestSyncPlan {
     pub excludes: Vec<String>,
     pub files: Vec<GuildManifestSyncFile>,
     pub manifest_json: String,
+    /// `play` = level-1 (mods + resource packs; prune extras in those dirs).
+    /// `full` = full reconcile including prune (default).
+    #[serde(default = "default_sync_mode")]
+    pub sync_mode: String,
+    /// When `Some`, skip hashing and only fetch these relative paths (from a prior check).
+    /// Empty `Some` means prune-only (no downloads). `None` means scan everything.
+    #[serde(default)]
+    pub only_paths: Option<Vec<String>>,
+}
+
+fn default_sync_mode() -> String {
+    "full".into()
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

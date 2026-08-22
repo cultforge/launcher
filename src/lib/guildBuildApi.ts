@@ -6,10 +6,20 @@ import {
   writeApiCache,
 } from "./apiCache";
 import type {
+  BuildContentKind,
   BuildManifest,
+  BuildManifestFile,
   GuildBuildModRef,
   GuildBuildRelease,
 } from "../types/buildManifest";
+import {
+  destKindForProjectType,
+  getModrinthProject,
+  getModrinthVersion,
+  getModrinthVersions,
+  versionMatchesFilters,
+  type ModrinthVersion,
+} from "./modrinth";
 
 export class GuildBuildApiError extends Error {
   status: number;
@@ -39,6 +49,8 @@ export type GuildBuildWritePayload = {
   coverUpload?: GuildBuildImageUpload | null;
   isPublished?: boolean;
   isFeatured?: boolean;
+  isPublicCatalog?: boolean;
+  keywords?: string[];
   requiredMods?: GuildBuildModRef[];
   optionalMods?: GuildBuildModRef[];
   shaders?: GuildBuildModRef[];
@@ -80,8 +92,14 @@ function unwrapList(data: unknown): unknown[] {
   if (Array.isArray(data)) return data;
   const obj = asRecord(data);
   if (!obj) return [];
-  for (const key of ["data", "items", "builds", "releases"]) {
+  for (const key of ["data", "items", "builds", "releases", "results"]) {
     if (Array.isArray(obj[key])) return obj[key] as unknown[];
+  }
+  const nested = asRecord(obj.data);
+  if (nested) {
+    for (const key of ["items", "builds", "releases", "results", "data"]) {
+      if (Array.isArray(nested[key])) return nested[key] as unknown[];
+    }
   }
   return [];
 }
@@ -95,13 +113,13 @@ function unwrapOne(data: unknown): unknown {
   return data;
 }
 
-function parseModRefs(raw: unknown): GuildBuildModRef[] {
+export function parseModRefs(raw: unknown): GuildBuildModRef[] {
   if (!Array.isArray(raw)) return [];
   const out: GuildBuildModRef[] = [];
   for (const row of raw) {
     const obj = asRecord(row);
     if (!obj) continue;
-    const name = String(obj.name ?? "").trim();
+    const name = String(obj.name ?? obj.slug ?? "").trim();
     if (!name) continue;
     const ref: GuildBuildModRef = { name };
     if (typeof obj.slug === "string" && obj.slug.trim()) {
@@ -122,7 +140,7 @@ function parseModRefs(raw: unknown): GuildBuildModRef[] {
   return out;
 }
 
-function modRefsToApi(refs: GuildBuildModRef[] | undefined): unknown[] | undefined {
+export function modRefsToApi(refs: GuildBuildModRef[] | undefined): unknown[] | undefined {
   if (refs === undefined) return undefined;
   return refs.map((m) => ({
     name: m.name,
@@ -145,12 +163,15 @@ function normalizeLoader(raw: string): string {
 /** Map guilds.cultforge.com GuildBuildRecord → launcher GuildBuildRelease view. */
 export function releaseFromGuildBuildRecord(
   row: unknown,
+  fallbackGuildId = "",
 ): GuildBuildRelease | null {
   const obj = asRecord(row);
   if (!obj) return null;
-  const id = String(obj.id ?? "").trim();
-  const guildId = String(obj.guild_id ?? obj.guildId ?? "").trim();
-  const name = String(obj.name ?? "").trim();
+  const id = String(obj.id ?? obj.build_id ?? obj.buildId ?? "").trim();
+  const guildId = String(
+    obj.guild_id ?? obj.guildId ?? fallbackGuildId ?? "",
+  ).trim();
+  const name = String(obj.name ?? obj.title ?? obj.display_name ?? "").trim();
   if (!id || !guildId || !name) return null;
   const required = parseModRefs(obj.required_mods ?? obj.requiredMods);
   const optional = parseModRefs(obj.optional_mods ?? obj.optionalMods);
@@ -210,8 +231,25 @@ export function releaseFromGuildBuildRecord(
       java: "17+",
     },
     sizes: {
-      downloadBytes: Number(obj.download_bytes ?? obj.downloadBytes ?? 0) || 0,
-      installedBytes: Number(obj.installed_bytes ?? obj.installedBytes ?? 0) || 0,
+      downloadBytes:
+        Number(
+          obj.download_bytes ??
+            obj.downloadBytes ??
+            obj.total_download_bytes ??
+            obj.totalDownloadBytes ??
+            obj.size_bytes ??
+            obj.sizeBytes ??
+            0,
+        ) || 0,
+      installedBytes:
+        Number(
+          obj.installed_bytes ??
+            obj.installedBytes ??
+            obj.total_installed_bytes ??
+            obj.totalInstalledBytes ??
+            0,
+        ) || 0,
+      estimated: false,
     },
     content: {
       mods: required.length + optional.length,
@@ -228,6 +266,11 @@ export function releaseFromGuildBuildRecord(
     description,
     isPublished: obj.is_published !== false && obj.isPublished !== false,
     isFeatured: Boolean(obj.is_featured ?? obj.isFeatured),
+    isPublicCatalog: Boolean(obj.is_public_catalog ?? obj.isPublicCatalog),
+    keywords: Array.isArray(obj.keywords) ? (obj.keywords as string[]).filter((k) => typeof k === "string") : [],
+    hasInstallManifest: Boolean(obj.has_install_manifest ?? obj.hasInstallManifest),
+    isInstallable: Boolean(obj.is_installable ?? obj.isInstallable),
+    installMode: typeof obj.install_mode === "string" ? obj.install_mode : undefined,
     deepLink: typeof obj.deep_link === "string" ? obj.deep_link : undefined,
     requiredMods: required,
     optionalMods: optional,
@@ -250,9 +293,12 @@ export async function fetchGuildBuildReleases(
         const raw = await send<unknown>("guilds", "list_guild_builds", {
           guild_id: guildId,
         });
-        return unwrapList(raw)
-          .map(releaseFromGuildBuildRecord)
+        const rows = unwrapList(raw);
+        const mapped = rows
+          .map((row) => releaseFromGuildBuildRecord(row, guildId))
           .filter((x): x is GuildBuildRelease => Boolean(x));
+        // Prefer published; if the API omits the flag, keep the row.
+        return mapped.filter((r) => r.isPublished !== false);
       },
     });
     return data;
@@ -272,8 +318,8 @@ export async function fetchGuildBuildRelease(
       build_id: buildId,
     });
     const row =
-      releaseFromGuildBuildRecord(unwrapOne(data)) ??
-      releaseFromGuildBuildRecord(data);
+      releaseFromGuildBuildRecord(unwrapOne(data), guildId) ??
+      releaseFromGuildBuildRecord(data, guildId);
     if (!row) {
       throw new GuildBuildApiError("Malformed guild build response", 502);
     }
@@ -305,6 +351,13 @@ function imageUploadBody(
   throw new GuildBuildApiError("image_base64 or image_url is required", 400);
 }
 
+/** Shared JSON body builder for guild / build media POSTs. */
+export function guildMediaUploadBody(
+  upload: GuildBuildImageUpload,
+): Record<string, string> {
+  return imageUploadBody(upload);
+}
+
 async function applyBuildImageUploads(
   guildId: string,
   buildId: string,
@@ -327,7 +380,7 @@ export async function uploadGuildBuildIcon(
   try {
     await sendMutate(
       "guilds",
-      "upload_guild_build_icon",
+      "upload_or_set_build_icon",
       {
         guild_id: guildId,
         build_id: buildId,
@@ -349,7 +402,7 @@ export async function uploadGuildBuildCover(
   try {
     await sendMutate(
       "guilds",
-      "upload_guild_build_cover",
+      "upload_or_set_build_cover_image",
       {
         guild_id: guildId,
         build_id: buildId,
@@ -393,7 +446,7 @@ export async function createGuildBuild(
       },
       "POST",
     );
-    let row = releaseFromGuildBuildRecord(unwrapOne(data));
+    let row = releaseFromGuildBuildRecord(unwrapOne(data), guildId);
     if (!row) {
       throw new GuildBuildApiError("Malformed create build response", 502);
     }
@@ -444,6 +497,8 @@ export async function updateGuildBuild(
     }
     if (payload.isPublished !== undefined) body.is_published = payload.isPublished;
     if (payload.isFeatured !== undefined) body.is_featured = payload.isFeatured;
+    if (payload.isPublicCatalog !== undefined) body.is_public_catalog = payload.isPublicCatalog;
+    if (payload.keywords !== undefined) body.keywords = payload.keywords;
     if (payload.requiredMods !== undefined) {
       body.required_mods = modRefsToApi(payload.requiredMods);
     }
@@ -462,7 +517,7 @@ export async function updateGuildBuild(
       body,
       "PATCH",
     );
-    let row = releaseFromGuildBuildRecord(unwrapOne(data));
+    let row = releaseFromGuildBuildRecord(unwrapOne(data), guildId);
     if (!row) {
       throw new GuildBuildApiError("Malformed update build response", 502);
     }
@@ -496,8 +551,8 @@ export async function deleteGuildBuild(
 }
 
 /**
- * File install manifest — still provisional on some hosts.
- * Kept as soft dependency for reconcile; may 404 until api ships it.
+ * Legacy provisional api-host file-manifest (may not exist).
+ * Prefer {@link fetchGuildBuildInstallManifest} from the guilds host.
  */
 export async function fetchBuildManifest(
   releaseId: string,
@@ -515,19 +570,469 @@ export async function fetchBuildManifest(
           : 0;
     if (status === 404 || status === 501 || status === 502) {
       throw new GuildBuildApiError(
-        "Guild install needs the remote build manifest API (not available yet). Catalog save still works.",
+        "Remote file-manifest API is not available for this release.",
         status || 404,
       );
     }
     const msg = err instanceof Error ? err.message : String(err);
-    if (/404|not found|manifest/i.test(msg)) {
+    if (/404|not found|manifest|Command .* not found/i.test(msg)) {
       throw new GuildBuildApiError(
-        "Guild install needs the remote build manifest API (not available yet). Catalog save still works.",
+        "Remote file-manifest API is not available for this release.",
         404,
       );
     }
     throw wrapError("Could not fetch build manifest", err);
   }
+}
+
+function parseInstallManifestFile(row: unknown): BuildManifestFile | null {
+  const obj = asRecord(row);
+  if (!obj) return null;
+  const path = String(obj.path ?? obj.rel_path ?? obj.relative_path ?? "").trim();
+  if (!path) return null;
+  const downloadsRaw = obj.downloads ?? obj.urls ?? obj.download_urls;
+  const downloads: string[] = [];
+  if (Array.isArray(downloadsRaw)) {
+    for (const u of downloadsRaw) {
+      if (typeof u === "string" && /^https?:\/\//i.test(u.trim())) {
+        downloads.push(u.trim());
+      } else {
+        const rec = asRecord(u);
+        const url = typeof rec?.url === "string" ? rec.url.trim() : "";
+        if (/^https?:\/\//i.test(url)) downloads.push(url);
+      }
+    }
+  }
+  const single =
+    typeof obj.url === "string"
+      ? obj.url.trim()
+      : typeof obj.download_url === "string"
+        ? obj.download_url.trim()
+        : "";
+  if (single && /^https?:\/\//i.test(single) && !downloads.includes(single)) {
+    downloads.unshift(single);
+  }
+  if (!downloads.length) return null;
+
+  const hashesObj = asRecord(obj.hashes) ?? {};
+  const sha512 = String(
+    hashesObj.sha512 ?? obj.sha512 ?? obj.sha_512 ?? "",
+  ).trim();
+  const sha256 = String(
+    hashesObj.sha256 ?? obj.sha256 ?? obj.sha_256 ?? "",
+  ).trim();
+  if (!sha512) return null;
+
+  const kindRaw = String(obj.kind ?? obj.content_kind ?? "mod").toLowerCase();
+  let kind: BuildContentKind = "mod";
+  if (kindRaw.includes("resource")) kind = "resource-pack";
+  else if (kindRaw.includes("shader")) kind = "shader";
+  else if (kindRaw.includes("config") || kindRaw.includes("data")) kind = "config";
+  else if (kindRaw.includes("server")) kind = "server-metadata";
+
+  const envRaw = String(obj.environment ?? obj.env ?? "both").toLowerCase();
+  const environment =
+    envRaw === "client" || envRaw === "server" || envRaw === "both"
+      ? envRaw
+      : "both";
+
+  return {
+    path: path.replace(/^\/+/, ""),
+    kind,
+    environment,
+    downloads,
+    sizeBytes: Number(obj.size_bytes ?? obj.sizeBytes ?? obj.size ?? 0) || 0,
+    hashes: {
+      sha256: sha256 || "0".repeat(64),
+      sha512,
+    },
+  };
+}
+
+export function parseGuildInstallManifest(
+  raw: unknown,
+  releaseId: string,
+): BuildManifest {
+  const root = asRecord(raw) ?? {};
+  const nested =
+    asRecord(root.data) ??
+    asRecord(root.manifest) ??
+    asRecord(root.install_manifest) ??
+    root;
+  const filesRaw =
+    nested.files ?? root.files ?? nested.items ?? nested.entries ?? [];
+  const list = Array.isArray(filesRaw) ? filesRaw : [];
+  const files = list
+    .map(parseInstallManifestFile)
+    .filter((x): x is BuildManifestFile => Boolean(x));
+  if (!files.length) {
+    throw new GuildBuildApiError(
+      "Install manifest response had no usable files.",
+      502,
+    );
+  }
+  const generatedAt = String(
+    nested.generated_at ??
+      nested.generatedAt ??
+      root.generated_at ??
+      new Date().toISOString(),
+  );
+  const excludesRaw = nested.excludes ?? root.excludes ?? ["saves/**"];
+  const excludes = Array.isArray(excludesRaw)
+    ? excludesRaw.map((x) => String(x)).filter(Boolean)
+    : ["saves/**"];
+  return {
+    schemaVersion: 1,
+    releaseId: String(nested.release_id ?? nested.releaseId ?? releaseId),
+    generatedAt,
+    excludes: [...new Set([...excludes, "saves/**"])],
+    files,
+  };
+}
+
+/** GET /v1/guilds/{guild_id}/builds/{build_id}/manifest */
+export async function fetchGuildBuildInstallManifest(
+  guildId: string,
+  buildId: string,
+): Promise<BuildManifest> {
+  try {
+    const raw = await send<unknown>("guilds", "get_guild_build_install_manifest", {
+      guild_id: guildId,
+      build_id: buildId,
+    });
+    return parseGuildInstallManifest(raw, buildId);
+  } catch (err) {
+    throw wrapError("Could not fetch guild build install manifest", err);
+  }
+}
+
+/** POST /v1/guilds/{guild_id}/builds/{build_id}/manifest/refresh */
+export async function refreshGuildBuildInstallManifest(
+  guildId: string,
+  buildId: string,
+): Promise<BuildManifest> {
+  try {
+    const raw = await sendMutate(
+      "guilds",
+      "refresh_guild_build_install_manifest",
+      { guild_id: guildId, build_id: buildId },
+      "POST",
+    );
+    return parseGuildInstallManifest(raw, buildId);
+  } catch (err) {
+    throw wrapError("Could not refresh guild build install manifest", err);
+  }
+}
+
+/** POST /v1/guilds/{guild_id}/builds/manifest/backfill */
+export async function backfillGuildBuildInstallManifests(
+  guildId: string,
+  opts?: { force?: boolean; limit?: number },
+): Promise<unknown> {
+  try {
+    return await sendMutate(
+      "guilds",
+      "backfill_install_manifests_for_existing_published_builds",
+      {
+        guild_id: guildId,
+        force: opts?.force ?? false,
+        limit: opts?.limit ?? 200,
+      },
+      "POST",
+    );
+  } catch (err) {
+    throw wrapError("Could not backfill guild build install manifests", err);
+  }
+}
+
+function projectKeyFromRef(ref: GuildBuildModRef): string | null {
+  const raw = (ref.slug || "").trim() || (ref.name || "").trim();
+  if (!raw) return null;
+  if (/^cf-datapack:/i.test(raw)) {
+    const stripped = raw.replace(/^cf-datapack:/i, "").trim();
+    return stripped || null;
+  }
+  return raw;
+}
+
+function kindForDest(
+  dest: ReturnType<typeof destKindForProjectType>,
+): BuildContentKind {
+  switch (dest) {
+    case "resourcepacks":
+      return "resource-pack";
+    case "shaderpacks":
+      return "shader";
+    case "datapacks":
+      return "config";
+    default:
+      return "mod";
+  }
+}
+
+function primaryModrinthFile(version: ModrinthVersion) {
+  return version.files.find((f) => f.primary) ?? version.files[0] ?? null;
+}
+
+async function resolveVersionForRef(
+  projectId: string,
+  ref: GuildBuildModRef,
+  gameVersion?: string,
+  loader?: string,
+): Promise<ModrinthVersion> {
+  const pinned = (ref.version || "").trim();
+  if (pinned) {
+    // Prefer exact Modrinth version id when it looks like one.
+    if (/^[A-Za-z0-9]{6,}$/.test(pinned) && !pinned.includes(".")) {
+      try {
+        const byId = await getModrinthVersion(pinned);
+        if (byId.project_id === projectId || !byId.project_id) return byId;
+      } catch {
+        /* fall through to version_number match */
+      }
+    }
+  }
+
+  const filtered = await getModrinthVersions(projectId, {
+    gameVersions: gameVersion ? [gameVersion] : undefined,
+    loaders: loader ? [loader] : undefined,
+  });
+  if (pinned) {
+    const byNumber = filtered.find(
+      (v) => v.version_number === pinned || v.name === pinned || v.id === pinned,
+    );
+    if (byNumber) return byNumber;
+  }
+  const compatible =
+    filtered.find((v) => versionMatchesFilters(v, gameVersion, loader)) ??
+    filtered[0];
+  if (compatible) return compatible;
+
+  const all = await getModrinthVersions(projectId);
+  if (pinned) {
+    const byNumber = all.find(
+      (v) => v.version_number === pinned || v.name === pinned || v.id === pinned,
+    );
+    if (byNumber) return byNumber;
+  }
+  const fallback = all.find((v) =>
+    versionMatchesFilters(v, gameVersion, loader),
+  );
+  if (!fallback) {
+    throw new Error(`No compatible Modrinth version for ${projectId}`);
+  }
+  return fallback;
+}
+
+async function mapPool<T, R>(
+  items: T[],
+  limit: number,
+  worker: (item: T, index: number) => Promise<R>,
+): Promise<R[]> {
+  const out: R[] = new Array(items.length);
+  let next = 0;
+  const runners = Array.from({ length: Math.min(limit, items.length) }, async () => {
+    while (true) {
+      const i = next++;
+      if (i >= items.length) return;
+      out[i] = await worker(items[i], i);
+    }
+  });
+  await Promise.all(runners);
+  return out;
+}
+
+/**
+ * Build an install file plan from the live GuildBuild catalog row
+ * (required_mods / optional_mods / shaders / resource_packs → Modrinth files).
+ */
+export async function resolveCatalogInstallManifest(
+  release: GuildBuildRelease,
+): Promise<BuildManifest> {
+  const gameVersion = release.dependencies.minecraft;
+  const loader = release.dependencies.loader;
+  const buckets: Array<{
+    refs: GuildBuildModRef[];
+    hint?: string;
+  }> = [
+    { refs: release.requiredMods ?? [], hint: "mod" },
+    { refs: release.optionalMods ?? [], hint: "mod" },
+    { refs: release.shaders ?? [], hint: "shader" },
+    { refs: release.resourcePacks ?? [], hint: "resourcepack" },
+  ];
+
+  type Work = { ref: GuildBuildModRef; hint?: string };
+  const work: Work[] = [];
+  for (const bucket of buckets) {
+    for (const ref of bucket.refs) {
+      if (projectKeyFromRef(ref)) work.push({ ref, hint: bucket.hint });
+    }
+  }
+
+  if (work.length === 0) {
+    if (release.downloadUrl?.trim()) {
+      throw new GuildBuildApiError(
+        "This build only has download_url (pack zip). Catalog mod lists are empty, so the launcher cannot resolve individual files yet.",
+        422,
+      );
+    }
+    throw new GuildBuildApiError(
+      "This build has no Modrinth content refs and no download_url to install.",
+      422,
+    );
+  }
+
+  const seenProjects = new Set<string>();
+  const files: BuildManifestFile[] = [];
+  const errors: string[] = [];
+
+  const resolved = await mapPool(work, 6, async ({ ref, hint }) => {
+    const key = projectKeyFromRef(ref)!;
+    try {
+      const project = await getModrinthProject(key);
+      if (seenProjects.has(project.id)) return null;
+      seenProjects.add(project.id);
+      const version = await resolveVersionForRef(
+        project.id,
+        ref,
+        gameVersion,
+        hint === "mod" ? loader : undefined,
+      );
+      const file = primaryModrinthFile(version);
+      if (!file?.url || !file.hashes.sha512) {
+        throw new Error(`Missing download/hash for ${project.title}`);
+      }
+      // Pull required deps once.
+      const depProjects: string[] = [];
+      for (const dep of version.dependencies ?? []) {
+        if (dep.dependency_type !== "required" || !dep.project_id) continue;
+        if (seenProjects.has(dep.project_id)) continue;
+        depProjects.push(dep.project_id);
+      }
+      const dest = destKindForProjectType(hint || project.project_type);
+      const entry: BuildManifestFile = {
+        path: `${dest}/${file.filename}`,
+        kind: kindForDest(dest),
+        environment: "both",
+        downloads: [file.url],
+        sizeBytes: file.size,
+        hashes: {
+          sha256: file.hashes.sha1 || "0".repeat(64),
+          sha512: file.hashes.sha512,
+        },
+      };
+      return { entry, depProjects, projectType: project.project_type };
+    } catch (err) {
+      errors.push(
+        `${ref.name || key}: ${err instanceof Error ? err.message : String(err)}`,
+      );
+      return null;
+    }
+  });
+
+  for (const row of resolved) {
+    if (!row) continue;
+    files.push(row.entry);
+  }
+
+  // Resolve required deps discovered above (second pass, still pooled).
+  const depIds = [
+    ...new Set(
+      resolved.flatMap((row) => (row ? row.depProjects : [])).filter(Boolean),
+    ),
+  ].filter((id) => !seenProjects.has(id));
+
+  if (depIds.length) {
+    const depFiles = await mapPool(depIds, 6, async (projectId) => {
+      if (seenProjects.has(projectId)) return null;
+      seenProjects.add(projectId);
+      try {
+        const project = await getModrinthProject(projectId);
+        const version = await resolveVersionForRef(
+          project.id,
+          { name: project.title },
+          gameVersion,
+          loader,
+        );
+        const file = primaryModrinthFile(version);
+        if (!file?.url || !file.hashes.sha512) return null;
+        const dest = destKindForProjectType(project.project_type);
+        return {
+          path: `${dest}/${file.filename}`,
+          kind: kindForDest(dest),
+          environment: "both" as const,
+          downloads: [file.url],
+          sizeBytes: file.size,
+          hashes: {
+            sha256: file.hashes.sha1 || "0".repeat(64),
+            sha512: file.hashes.sha512,
+          },
+        } satisfies BuildManifestFile;
+      } catch (err) {
+        errors.push(
+          `dep ${projectId}: ${err instanceof Error ? err.message : String(err)}`,
+        );
+        return null;
+      }
+    });
+    for (const f of depFiles) {
+      if (f) files.push(f);
+    }
+  }
+
+  if (files.length === 0) {
+    throw new GuildBuildApiError(
+      `Could not resolve catalog content from Modrinth (${errors.slice(0, 3).join("; ") || "no files"}).`,
+      502,
+    );
+  }
+
+  const deduped = new Map<string, BuildManifestFile>();
+  for (const file of files) {
+    deduped.set(file.path.toLowerCase(), file);
+  }
+
+  return {
+    schemaVersion: 1,
+    releaseId: release.id,
+    // Stable across resolves so we do not treat every catalog rebuild as a new install.
+    generatedAt:
+      release.publishedAtIso ||
+      release.publishedAt ||
+      `${release.id}:${release.version || "0"}`,
+    excludes: [...new Set([...(release.excludes ?? []), "saves/**"])],
+    files: [...deduped.values()],
+  };
+}
+
+/**
+ * Prefer guilds install-manifest API, then legacy api host, then Modrinth
+ * resolve from the GuildBuild catalog row.
+ */
+export async function resolveGuildInstallManifest(
+  release: GuildBuildRelease,
+): Promise<BuildManifest> {
+  if (release.guildId && release.id) {
+    try {
+      return await fetchGuildBuildInstallManifest(release.guildId, release.id);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.warn("get_guild_build_install_manifest failed:", msg);
+    }
+  }
+
+  try {
+    return await fetchBuildManifest(release.id);
+  } catch (err) {
+    const soft =
+      err instanceof GuildBuildApiError &&
+      (err.status === 404 || err.status === 501 || err.status === 502);
+    const msg = err instanceof Error ? err.message : String(err);
+    if (!soft && !/not available|not found|Command .* not found/i.test(msg)) {
+      console.warn("get_build_manifest failed; using catalog resolve", msg);
+    }
+  }
+  return resolveCatalogInstallManifest(release);
 }
 
 export async function refreshGuildBuildsCache(

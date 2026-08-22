@@ -1,7 +1,11 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { useGuildModalsStore } from "../../../stores/guildModals";
 import { useGuildStore } from "../../../stores/guilds";
+import {
+  backfillGuildBuildInstallManifests,
+  refreshGuildBuildInstallManifest,
+} from "../../../lib/guildBuildApi";
 
 function formatMib(bytes: number) {
   if (!bytes) return "—";
@@ -11,33 +15,81 @@ function formatMib(bytes: number) {
 export function ManageBuilds() {
   const guildId = useGuildStore((state) => state.activeGuildId);
   const builds = useGuildStore((state) => state.buildReleases);
+  const hydrateGuildBuilds = useGuildStore((state) => state.hydrateGuildBuilds);
   const servers = useGuildStore((state) => state.servers);
   const deleteBuildRelease = useGuildStore((state) => state.deleteBuildRelease);
   const open = useGuildModalsStore((state) => state.open);
   const [busyId, setBusyId] = useState<string | null>(null);
+  const [backfilling, setBackfilling] = useState(false);
   const rows = builds.filter((release) => release.guildId === guildId);
   const serverName = (id: string) =>
     id ? (servers.find((server) => server.id === id)?.name ?? id) : "—";
 
+  useEffect(() => {
+    if (guildId) void hydrateGuildBuilds(guildId);
+  }, [guildId, hydrateGuildBuilds]);
+
+  const onRefreshManifest = async (buildId: string, name: string) => {
+    setBusyId(`manifest-${buildId}`);
+    try {
+      const manifest = await refreshGuildBuildInstallManifest(guildId, buildId);
+      toast.success(`Manifest refreshed for ${name}`, {
+        description: `${manifest.files.length} files ready for install.`,
+      });
+    } catch (err) {
+      toast.error(
+        err instanceof Error ? err.message : "Could not refresh install manifest",
+      );
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  const onBackfill = async () => {
+    setBackfilling(true);
+    try {
+      await backfillGuildBuildInstallManifests(guildId, { force: false });
+      toast.success("Install manifests backfill started", {
+        description: "Published builds without a manifest will be resolved.",
+      });
+    } catch (err) {
+      toast.error(
+        err instanceof Error ? err.message : "Could not backfill manifests",
+      );
+    } finally {
+      setBackfilling(false);
+    }
+  };
+
   return (
     <div className="flex flex-col gap-3">
-      <div className="flex items-center justify-between gap-2">
+      <div className="flex flex-wrap items-center justify-between gap-2">
         <div>
           <h3 className="font-sora text-[14px] font-bold text-text-primary">
             Builds
           </h3>
           <p className="text-[10px] text-text-muted">
-            Live guild catalog — attach an external download_url; no pack upload
-            here.
+            Live guild catalog on guilds.cultforge.com. Install uses the server
+            install-manifest (with Modrinth fallback).
           </p>
         </div>
-        <button
-          type="button"
-          onClick={() => open("build")}
-          className="cf-btn-primary rounded-lg px-3 py-2 text-[10px] font-semibold cursor-pointer"
-        >
-          Add release
-        </button>
+        <div className="flex flex-wrap gap-2">
+          <button
+            type="button"
+            disabled={backfilling || rows.length === 0}
+            onClick={() => void onBackfill()}
+            className="rounded-lg border border-border-subtle px-3 py-2 text-[10px] text-text-secondary cursor-pointer disabled:opacity-40"
+          >
+            {backfilling ? "Backfilling…" : "Backfill manifests"}
+          </button>
+          <button
+            type="button"
+            onClick={() => open("build")}
+            className="cf-btn-primary rounded-lg px-3 py-2 text-[10px] font-semibold cursor-pointer"
+          >
+            Add release
+          </button>
+        </div>
       </div>
       <div className="cf-panel overflow-hidden rounded-xl">
         {rows.length === 0 ? (
@@ -68,7 +120,9 @@ export function ManageBuilds() {
                       v{release.version} · {release.dependencies.minecraft} ·{" "}
                       {release.dependencies.loader}
                       {release.sizes.downloadBytes
-                        ? ` · ${formatMib(release.sizes.downloadBytes)}`
+                        ? ` · ${formatMib(release.sizes.downloadBytes)}${
+                            release.sizes.estimated ? " est." : ""
+                          }`
                         : ""}
                     </div>
                   </td>
@@ -80,6 +134,18 @@ export function ManageBuilds() {
                     {release.isFeatured ? " · Featured" : ""}
                   </td>
                   <td className="px-3 py-2 text-right">
+                    <button
+                      type="button"
+                      disabled={busyId === `manifest-${release.id}`}
+                      onClick={() =>
+                        void onRefreshManifest(release.id, release.name)
+                      }
+                      className="mr-2 text-[9px] text-text-secondary cursor-pointer disabled:opacity-40"
+                    >
+                      {busyId === `manifest-${release.id}`
+                        ? "…"
+                        : "Refresh manifest"}
+                    </button>
                     <button
                       type="button"
                       onClick={() => open("build", release.id)}

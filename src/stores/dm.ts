@@ -1,4 +1,5 @@
 import { create } from "zustand";
+import { sortChatChronologically } from "../lib/chatOrdering";
 import {
   dmSendAlert,
   fetchDmConversations,
@@ -92,13 +93,13 @@ export const useDmStore = create<DmStore>((set, get) => ({
     };
     set((state) => ({
       draft: fromDraft ? "" : state.draft,
-      messages: [...state.messages, optimistic],
+      messages: sortChatChronologically([...state.messages, optimistic]),
     }));
     try {
       const saved = await sendDm(peerId, body);
       set((state) => ({
-        messages: state.messages.map((m) =>
-          m.id === optimistic.id ? saved : m,
+        messages: sortChatChronologically(
+          state.messages.map((m) => (m.id === optimistic.id ? saved : m)),
         ),
       }));
       void get().refreshConversations();

@@ -10,11 +10,8 @@ export type ActivityItem = {
 };
 
 export const QUICK_ACTIONS = [
-  { id: "settings", label: "Edit Instance Settings", icon: "Settings2" as const },
-  { id: "folder", label: "Open Folder", icon: "FolderOpen" as const },
-  { id: "backup", label: "Create Backup", icon: "Database" as const },
-  { id: "export", label: "Export Pack", icon: "Package" as const },
-  { id: "duplicate", label: "Duplicate Build", icon: "Copy" as const },
+  { id: "folder", label: "Open game folder", icon: "FolderOpen" as const },
+  { id: "settings", label: "Instance settings", icon: "Settings2" as const },
 ];
 
 export type FeaturedAddon = {

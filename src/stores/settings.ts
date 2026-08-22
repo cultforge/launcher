@@ -1,5 +1,10 @@
 import { create } from "zustand";
 import { getPreference, setPreference } from "../lib/persistentStore";
+import {
+  DEFAULT_GUILD_UI_PREFERENCES,
+  mergeGuildUiPreferences,
+  type GuildUiPreferences,
+} from "../lib/guildUi";
 
 export type AssistantProvider = "cultforge" | "gemini" | "openai";
 
@@ -18,6 +23,8 @@ export type LauncherSettings = {
   assistantModel: string;
   /** Non-secret OpenAI-compatible base URL. */
   assistantBaseUrl: string;
+  /** Guild display preferences — density and optional tab visibility only. */
+  guildUiPreferences: GuildUiPreferences;
 };
 
 export const DEFAULT_SETTINGS: LauncherSettings = {
@@ -28,10 +35,11 @@ export const DEFAULT_SETTINGS: LauncherSettings = {
   personalDiscordSource: "",
   downloadsPath: "C:/Games/CultForge/downloads",
   javaDefault: "21",
-  closeOnLaunch: false,
+  closeOnLaunch: true,
   assistantProvider: "cultforge",
   assistantModel: "",
   assistantBaseUrl: "https://api.openai.com/v1",
+  guildUiPreferences: { ...DEFAULT_GUILD_UI_PREFERENCES },
 };
 
 const SETTINGS_KEY = "launcher.settings";
@@ -88,8 +96,14 @@ function mergeSettings(raw: unknown): LauncherSettings {
       typeof obj.assistantBaseUrl === "string" && obj.assistantBaseUrl.trim()
         ? obj.assistantBaseUrl
         : DEFAULT_SETTINGS.assistantBaseUrl,
+    guildUiPreferences: mergeGuildUiPreferences(obj.guildUiPreferences),
   };
 }
+
+const PERSIST_NOW_KEYS = new Set([
+  "closeOnLaunch",
+  "guildUiPreferences",
+]);
 
 type SettingsStore = {
   hydrated: boolean;
@@ -110,7 +124,18 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
     const merged = mergeSettings(saved);
     set({ settings: merged, draft: { ...merged }, hydrated: true });
   },
-  setDraft: (patch) => set({ draft: { ...get().draft, ...patch } }),
+  setDraft: (patch) => {
+    const draft = { ...get().draft, ...patch };
+    const persistNow = Object.keys(patch).some((key) =>
+      PERSIST_NOW_KEYS.has(key),
+    );
+    if (persistNow) {
+      set({ settings: draft, draft });
+      void setPreference(SETTINGS_KEY, draft);
+      return;
+    }
+    set({ draft });
+  },
   save: () => {
     const next = { ...get().draft };
     set({ settings: next });

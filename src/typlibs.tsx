@@ -29,7 +29,7 @@ type NavigationStore = {
 
 export const useNavigationStore = create<NavigationStore>((set) => ({
   primaryTab: "Home",
-  sideItem: "Home",
+  sideItem: "Builds",
   setPrimaryTab: (tab) => set({ primaryTab: tab }),
   setSideItem: (item) => set({ sideItem: item }),
 }));
@@ -87,6 +87,7 @@ function statusFromPhase(phase: string): DownloadItem["status"] {
 
 function jobPhaseLabel(phase: string, itemId: string): string {
   if (phase === "done" && itemId !== "job") return "installing";
+  if (phase === "verifying" && itemId === "job") return "checking";
   return phase;
 }
 
@@ -162,16 +163,23 @@ export const useDownloadStore = create<DownloadStore>((set, get) => ({
     // Prefer the plan total from enqueue; never shrink when a single file reports.
     const totalBytes = Math.max(
       existing?.totalBytes ?? 0,
+      event.itemId === "job" ? event.totalBytes : 0,
       isJobComplete ? event.totalBytes : 0,
       filesKnownTotal,
       1,
     );
 
+    const jobVerifyBytes =
+      event.itemId === "job" &&
+      (event.phase === "verifying" || event.phase === "checking")
+        ? Math.min(event.downloadedBytes, totalBytes)
+        : 0;
+
     const downloadedBytes = isJobComplete
       ? totalBytes
       : isTerminalError
-        ? Math.min(filesDownloaded, totalBytes)
-        : Math.min(filesDownloaded, totalBytes);
+        ? Math.min(Math.max(filesDownloaded, jobVerifyBytes), totalBytes)
+        : Math.min(Math.max(filesDownloaded, jobVerifyBytes), totalBytes);
 
     const progress = isJobComplete
       ? 100

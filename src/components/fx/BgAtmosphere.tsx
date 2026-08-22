@@ -1,4 +1,6 @@
 import { useEffect, useRef } from "react";
+import { useLaunchStore } from "../../stores/launch";
+import { useNavigationStore } from "../../typlibs";
 
 const SOURCE = "/bg/background.mp4";
 const WATCHDOG_MS = 900;
@@ -6,15 +8,29 @@ const STALL_MS = 450;
 
 /**
  * Full-bleed looping ambient video behind the OLED shell.
- * Chromium/WebView2 will pause or freeze decode on blur, overlay dialogs,
- * and CSS-filtered &lt;video&gt; layers — keep it alive unless minimized.
+ * Keep it alive unless minimized / tray visual idle.
  */
 export function BgAtmosphere() {
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const reducedRef = useRef(false);
   const minimizedRef = useRef(false);
+  const visualIdleRef = useRef(false);
   const lastTimeRef = useRef(0);
   const lastAdvanceRef = useRef(performance.now());
+  const visualIdle = useLaunchStore((s) => s.visualIdle);
+  const primaryTab = useNavigationStore((s) => s.primaryTab);
+  const quietGuild = primaryTab === "Guilds";
+
+  useEffect(() => {
+    visualIdleRef.current = visualIdle;
+    const v = videoRef.current;
+    if (!v) return;
+    if (visualIdle) {
+      v.pause();
+    } else if (!reducedRef.current && !minimizedRef.current) {
+      void ensurePlaying(v);
+    }
+  }, [visualIdle]);
 
   useEffect(() => {
     const mq = window.matchMedia("(prefers-reduced-motion: reduce)");
@@ -24,7 +40,7 @@ export function BgAtmosphere() {
       reducedRef.current = mq.matches;
       const v = videoRef.current;
       if (!v) return;
-      if (mq.matches) v.pause();
+      if (mq.matches || visualIdleRef.current) v.pause();
       else void ensurePlaying(v);
     };
     mq.addEventListener("change", onMq);
@@ -50,7 +66,9 @@ export function BgAtmosphere() {
         await sync();
         const stopFocus = await win.onFocusChanged(() => {
           void sync().then(() => {
-            if (!minimizedRef.current) kickRef.current?.();
+            if (!minimizedRef.current && !visualIdleRef.current) {
+              kickRef.current?.();
+            }
           });
         });
         unlisten = () => {
@@ -85,7 +103,8 @@ export function BgAtmosphere() {
       /* older webview */
     }
 
-    const hold = () => reducedRef.current || minimizedRef.current;
+    const hold = () =>
+      reducedRef.current || minimizedRef.current || visualIdleRef.current;
 
     const kick = () => {
       if (hold()) return;
@@ -130,7 +149,7 @@ export function BgAtmosphere() {
     };
 
     const onVisibility = () => {
-      if (!document.hidden) kick();
+      if (!document.hidden && !visualIdleRef.current) kick();
     };
 
     v.addEventListener("ended", onEnded);
@@ -151,9 +170,7 @@ export function BgAtmosphere() {
       if (hold()) return;
       const now = performance.now();
       const frozen =
-        !v.paused &&
-        !v.ended &&
-        now - lastAdvanceRef.current > STALL_MS;
+        !v.paused && !v.ended && now - lastAdvanceRef.current > STALL_MS;
       if (v.paused || v.ended || frozen) {
         if (frozen) {
           try {
@@ -186,7 +203,11 @@ export function BgAtmosphere() {
   }, []);
 
   return (
-    <div className="app-bg-layer" aria-hidden>
+    <div
+      className="app-bg-layer"
+      aria-hidden
+      data-guild-quiet={quietGuild ? "true" : undefined}
+    >
       <video
         ref={videoRef}
         className="app-bg-video is-active"

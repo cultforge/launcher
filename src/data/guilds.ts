@@ -1,4 +1,5 @@
 import type { BuildInstance } from "../stores/build";
+import { guildInstanceId } from "../lib/guildInstanceId";
 
 export type GuildRole = "Leader" | "Officer" | "Member";
 export type MemberStatus = "online" | "idle" | "offline";
@@ -32,6 +33,7 @@ export type GuildMember = {
   role: GuildRole;
   status: MemberStatus;
   contribution: number;
+  avatarUrl?: string | null;
 };
 
 export type GuildContentLink = {
@@ -130,14 +132,31 @@ export type GuildServer = {
   id: string;
   guildId: string;
   name: string;
+  /**
+   * Join / mping address — prefers live tunnel (`effectiveAddress`) when the
+   * agent overrides catalog defaults.
+   */
   address: string;
+  /** GuildMaster-configured host (catalog default). */
+  configuredAddress?: string;
+  configuredPort?: number;
+  /** Live tunnel host when `addressSource === "tunnel"`. */
+  effectiveAddress?: string;
+  effectivePort?: number;
+  addressSource?: "configured" | "tunnel" | string;
+  tunnelUpdatedAt?: string | null;
   playersOnline: number;
   playersMax: number;
   pingMs: number;
   version: string;
   region: string;
   description: string;
+  /** Cover art used on cards (alias of coverUrl when set). */
   thumbnail: string;
+  /** Square server icon (header / list). */
+  iconUrl?: string | null;
+  /** Wide cover / landscape art. */
+  coverUrl?: string | null;
   tags: string[];
   loader: string;
   status: "online" | "maintenance" | "offline";
@@ -145,8 +164,47 @@ export type GuildServer = {
   requiredBuildVersion: string;
 };
 
+/** Host:port used for join, clipboard, and mping. */
+export function guildServerJoinAddress(server: {
+  address: string;
+  effectiveAddress?: string;
+  effectivePort?: number;
+  configuredAddress?: string;
+  configuredPort?: number;
+  addressSource?: string;
+}): string {
+  const source = (server.addressSource || "").toLowerCase();
+  const eff = server.effectiveAddress?.trim();
+  // Prefer live tunnel/effective unless API explicitly says configured-only.
+  if (eff && source !== "configured") {
+    if (eff.includes(":")) return eff;
+    return `${eff}:${server.effectivePort ?? 25565}`;
+  }
+  if (server.address?.trim()) return server.address.trim();
+  const cfg = server.configuredAddress?.trim();
+  if (cfg) {
+    if (cfg.includes(":")) return cfg;
+    return `${cfg}:${server.configuredPort ?? 25565}`;
+  }
+  return "";
+}
+
+/** Catalog default address for admin display. */
+export function guildServerConfiguredAddress(server: {
+  address: string;
+  configuredAddress?: string;
+  configuredPort?: number;
+}): string {
+  if (server.configuredAddress?.trim()) {
+    const host = server.configuredAddress.trim();
+    if (host.includes(":")) return host;
+    return `${host}:${server.configuredPort ?? 25565}`;
+  }
+  return server.address;
+}
+
 export type ServerCompatibility =
-  | { state: "ready"; build: BuildInstance }
+  | { state: "ready"; build: BuildInstance | null }
   | { state: "update-required"; build: BuildInstance }
   | { state: "missing"; build: null };
 
@@ -178,16 +236,36 @@ export const GUILD_HUB_TABS = [
   "Overview",
   "News",
   "Events",
-  "Rankings",
   "Chat",
-  "Discord",
   "Servers",
   "Builds",
   "Members",
+  "Activity",
+  "Players",
+  "Forums",
+  "Rankings",
+  "Discord",
   "Manage",
 ] as const;
 
 export type GuildHubTab = (typeof GUILD_HUB_TABS)[number];
+
+/** Short labels for scrollable hub tab bar. */
+export const GUILD_HUB_TAB_LABELS: Record<GuildHubTab, string> = {
+  Overview: "Overview",
+  News: "News",
+  Events: "Events",
+  Chat: "Chat",
+  Servers: "Servers",
+  Builds: "Builds",
+  Members: "Members",
+  Activity: "Activity",
+  Players: "Players",
+  Forums: "Forums",
+  Rankings: "Rankings",
+  Discord: "Discord",
+  Manage: "Manage",
+};
 
 /** Live guild catalog — filled from CultForge guild manifests after sign-in. */
 export const DEMO_GUILDS: Guild[] = [];
@@ -279,9 +357,8 @@ export function serversForGuild(guildId: string): GuildServer[] {
   return DEMO_SERVERS.filter((s) => s.guildId === guildId);
 }
 
-export function playersOnServer(_serverId: string): string[] {
-  return [];
-}
+/** @deprecated Prefer useGuildAgentPresenceStore — kept for callers. */
+export { playersOnServer } from "../stores/guildAgentPresence";
 
 function versionParts(version: string): number[] {
   return version.split(".").map((part) => Number.parseInt(part, 10) || 0);
@@ -302,14 +379,51 @@ export function serverCompatibility(
   server: GuildServer,
   builds: BuildInstance[],
 ): ServerCompatibility {
-  const build = builds.find((item) => item.id === server.requiredBuildId);
+  const required = (server.requiredBuildId || "").trim();
+  if (!required) {
+    // No linked build — don't scare players with "Build missing".
+    return { state: "ready", build: null };
+  }
+
+  const managedId = guildInstanceId(server.guildId, required);
+  const build =
+    builds.find((item) => item.id === required) ??
+    builds.find((item) => item.id === managedId) ??
+    builds.find(
+      (item) =>
+        item.buildKey === required ||
+        (item.guildId === server.guildId && item.buildKey === required),
+    ) ??
+    builds.find(
+      (item) =>
+        item.managed &&
+        item.guildId === server.guildId &&
+        (item.releaseId === required || item.id.includes(required)),
+    );
+
   if (!build) return { state: "missing", build: null };
-  if (
-    build.mc !== server.version ||
-    !build.loader.toLowerCase().startsWith(server.loader.toLowerCase()) ||
-    !versionAtLeast(build.version, server.requiredBuildVersion) ||
-    build.status !== "Ready"
-  ) {
+
+  const loaderOk =
+    !server.loader ||
+    server.loader === "—" ||
+    build.loader.toLowerCase().startsWith(server.loader.toLowerCase()) ||
+    server.loader.toLowerCase().startsWith(build.loader.toLowerCase());
+  const mcOk =
+    !server.version ||
+    server.version === "—" ||
+    !build.mc ||
+    build.mc === "—" ||
+    build.mc === server.version;
+  const versionOk =
+    !server.requiredBuildVersion ||
+    server.requiredBuildVersion === "any" ||
+    versionAtLeast(build.version, server.requiredBuildVersion);
+  const readyStatus =
+    build.status === "Ready" ||
+    build.syncStatus === "synced" ||
+    build.source === "guild";
+
+  if (!loaderOk || !mcOk || !versionOk || !readyStatus) {
     return { state: "update-required", build };
   }
   return { state: "ready", build };

@@ -6,7 +6,10 @@ function isTauri(): boolean {
 
 export type MpingStatus = {
   online: boolean | null;
+  /** Player count when broker sends a number (preferred). */
   players?: number | string[];
+  /** Alternate field if broker avoids duplicate `players` key. */
+  players_online?: number;
   max_players?: number;
   latency?: number;
   motd?: string;
@@ -60,6 +63,62 @@ export async function syncMpingWatchList(
   }
 }
 
+/** Coerce broker / JSON quirks (`"true"`, 1, `"online"`) into a tri-state. */
+export function coerceMpingOnline(value: unknown): boolean | null {
+  if (value === true || value === 1) return true;
+  if (value === false || value === 0) return false;
+  if (typeof value === "string") {
+    const s = value.trim().toLowerCase();
+    if (["true", "1", "online", "up", "yes"].includes(s)) return true;
+    if (["false", "0", "offline", "down", "no"].includes(s)) return false;
+  }
+  return null;
+}
+
+function normalizeMpingPayload(raw: Record<string, unknown>): MpingStatus {
+  const online = coerceMpingOnline(raw.online ?? raw.status ?? raw.reachable);
+  const players = raw.players;
+  const playersOnline =
+    typeof raw.players_online === "number"
+      ? raw.players_online
+      : typeof raw.playersOnline === "number"
+        ? raw.playersOnline
+        : undefined;
+  const maxPlayers =
+    typeof raw.max_players === "number"
+      ? raw.max_players
+      : typeof raw.maxPlayers === "number"
+        ? raw.maxPlayers
+        : undefined;
+  const latency =
+    typeof raw.latency === "number"
+      ? raw.latency
+      : typeof raw.ping === "number"
+        ? raw.ping
+        : typeof raw.ping_ms === "number"
+          ? raw.ping_ms
+          : undefined;
+
+  return {
+    online,
+    players: Array.isArray(players)
+      ? (players as string[])
+      : typeof players === "number"
+        ? players
+        : undefined,
+    players_online: playersOnline,
+    max_players: maxPlayers,
+    latency,
+    motd: typeof raw.motd === "string" ? raw.motd : undefined,
+    wait: raw.wait === true,
+    "wait-time":
+      typeof raw["wait-time"] === "string" || raw["wait-time"] === null
+        ? (raw["wait-time"] as string | null)
+        : undefined,
+    error: typeof raw.error === "string" ? raw.error : undefined,
+  };
+}
+
 export async function queryMpingStatus(
   address: string,
 ): Promise<MpingStatus | null> {
@@ -70,11 +129,15 @@ export async function queryMpingStatus(
     const url = `http://127.0.0.1:${port}/query?server=${encodeURIComponent(server)}`;
     const res = await fetch(url);
     if (res.status === 404) return null;
-    if (!res.ok) return { online: false, error: `HTTP ${res.status}` };
-    return (await res.json()) as MpingStatus;
+    // Broker/HTTP failure ≠ Minecraft offline — leave unknown so UI can use runtime.
+    if (!res.ok) {
+      return { online: null, error: `HTTP ${res.status}` };
+    }
+    const json = (await res.json()) as Record<string, unknown>;
+    return normalizeMpingPayload(json);
   } catch (err) {
     return {
-      online: false,
+      online: null,
       error: err instanceof Error ? err.message : String(err),
     };
   }
@@ -87,18 +150,51 @@ export function formatMpingLabel(status: MpingStatus | null | undefined): string
       ? `Waiting ${status["wait-time"]}m`
       : "Waiting";
   }
+  if (status.error && status.online !== true) return "Checking…";
   if (status.online === true) {
     const n =
-      typeof status.players === "number"
-        ? status.players
-        : Array.isArray(status.players)
-          ? status.players.length
-          : undefined;
+      typeof status.players_online === "number"
+        ? status.players_online
+        : typeof status.players === "number"
+          ? status.players
+          : Array.isArray(status.players)
+            ? status.players.length
+            : undefined;
     if (n != null && status.max_players != null) {
       return `Online · ${n}/${status.max_players}`;
     }
     return "Online";
   }
   if (status.online === false) return "Offline";
-  return "Unknown";
+  return "…";
+}
+
+/** Live reachability from ctfgbroker — not guild catalog is_active. */
+export function liveOnlineFromMping(
+  status: MpingStatus | null | undefined,
+): boolean | null {
+  if (!status || status.wait) return null;
+  // Transport/broker errors must not paint the world as Offline.
+  if (status.error && status.online !== true) return null;
+  if (status.online === true) return true;
+  if (status.online === false) return false;
+  return null;
+}
+
+export function applyMpingToServerStats(
+  status: MpingStatus | null | undefined,
+): { playersOnline: number; playersMax: number; pingMs: number } | null {
+  if (!status || status.online !== true) return null;
+  const playersOnline =
+    typeof status.players_online === "number"
+      ? status.players_online
+      : typeof status.players === "number"
+        ? status.players
+        : Array.isArray(status.players)
+          ? status.players.length
+          : 0;
+  const playersMax =
+    typeof status.max_players === "number" ? status.max_players : 0;
+  const pingMs = typeof status.latency === "number" ? status.latency : 0;
+  return { playersOnline, playersMax, pingMs };
 }

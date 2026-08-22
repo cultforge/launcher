@@ -55,6 +55,13 @@ pub struct MinecraftExitEvent {
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct LaunchServerEntry {
+    pub name: String,
+    pub ip: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct LaunchMinecraftArgs {
     pub version_id: String,
     pub game_dir: String,
@@ -70,6 +77,8 @@ pub struct LaunchMinecraftArgs {
     pub height: Option<u32>,
     pub dedicated_gpu: Option<bool>,
     pub wrapper: Option<String>,
+    /// Guild / personal servers to upsert into instance `servers.dat`.
+    pub server_list: Option<Vec<LaunchServerEntry>>,
 }
 
 fn now_ms() -> u64 {
@@ -945,19 +954,25 @@ pub fn write_crash_report(
 
 #[tauri::command]
 pub fn minimize_to_tray(app: AppHandle) -> Result<(), String> {
-    if let Some(win) = app.get_webview_window("main") {
-        let _ = win.hide();
-    }
+    let win = app
+        .get_webview_window("main")
+        .ok_or_else(|| "Main window not found".to_string())?;
+    win.hide()
+        .map_err(|e| format!("Failed to hide window: {e}"))?;
+    let _ = app.emit("launcher-tray-idle", ());
     Ok(())
 }
 
 #[tauri::command]
 pub fn restore_from_tray(app: AppHandle) -> Result<(), String> {
-    if let Some(win) = app.get_webview_window("main") {
-        let _ = win.show();
-        let _ = win.unminimize();
-        let _ = win.set_focus();
-    }
+    let win = app
+        .get_webview_window("main")
+        .ok_or_else(|| "Main window not found".to_string())?;
+    win.show()
+        .map_err(|e| format!("Failed to show window: {e}"))?;
+    let _ = win.unminimize();
+    let _ = win.set_focus();
+    let _ = app.emit("launcher-tray-resume", ());
     Ok(())
 }
 
@@ -981,6 +996,21 @@ pub fn launch_minecraft(app: AppHandle, args: LaunchMinecraftArgs) -> Result<Lau
     }
     fs::create_dir_all(&game_dir)
         .map_err(|e| format!("Failed to create game dir {}: {e}", game_dir.display()))?;
+
+    if let Some(list) = args.server_list.as_ref() {
+        if !list.is_empty() {
+            let entries: Vec<crate::servers_dat::ServerListEntry> = list
+                .iter()
+                .map(|s| crate::servers_dat::ServerListEntry {
+                    name: s.name.clone(),
+                    ip: s.ip.clone(),
+                })
+                .collect();
+            if let Err(e) = crate::servers_dat::upsert_servers_dat(&game_dir, &entries) {
+                eprintln!("[cultforge] servers.dat: {e}");
+            }
+        }
+    }
 
     let minecraft_root = args
         .minecraft_root

@@ -127,6 +127,9 @@ export function mapApiProfileToCurrentUser(
     ) ??
     fallback?.avatarUrl ??
     "";
+  // OAuth callback avatar_url is the CultForge hosted profile avatar
+  // (https://api.cultforge.com/v1/profile/{id}/avatar). Keep it — UserAvatar
+  // rewrites it through the local sidecar proxy.
   const avatarUrl = canonicalizeHostedAvatarUrl(id, rawAvatar);
 
   const bio = pickString("bio", "about") ?? "";

@@ -16,6 +16,7 @@ import {
   type GuildServer,
   type LeaderboardRow,
   type RankingMetric,
+  guildServerJoinAddress,
 } from "../data/guilds";
 import type { GuildBuildRelease } from "../types/buildManifest";
 import { parseDiscordGuildSource } from "../lib/discordWidget";
@@ -37,9 +38,13 @@ import {
   refreshGuildMembers,
   setGuildMemberLauncherRole,
   updateGuildDiscordSource,
+  applyGuildBranding,
+  DEFAULT_GUILD_BANNER,
   createGuildInvite,
   leaveGuildRemote,
 } from "../lib/guildApi";
+import { clearGuildMediaDisplayCache } from "../lib/guildMedia";
+import type { GuildBrandingDraft } from "../lib/guildApi";
 import {
   createGuildNews,
   createGuildEvent,
@@ -58,6 +63,28 @@ import {
   sendChannelMessage,
   type GuildChannel,
 } from "../lib/guildChat";
+import { sortChatChronologically } from "../lib/chatOrdering";
+
+function isOptimisticChatId(id: string): boolean {
+  return id.startsWith("local-");
+}
+
+/** Merge a server message without duplicating optimistic or websocket echoes. */
+function reconcileGuildChatMessages(
+  messages: ChatMessage[],
+  incoming: ChatMessage,
+): ChatMessage[] {
+  const withoutIdDupes = messages.filter((m) => m.id !== incoming.id);
+  const withoutOptimistic = withoutIdDupes.filter((m) => {
+    if (!isOptimisticChatId(m.id)) return true;
+    const sameAuthor =
+      incoming.authorId && m.authorId
+        ? m.authorId === incoming.authorId
+        : m.author === incoming.author;
+    return !(sameAuthor && m.text === incoming.text);
+  });
+  return sortChatChronologically([...withoutOptimistic, incoming]);
+}
 import { sendClientWsFrame } from "../lib/clientLogSocket";
 import {
   createGuildServer,
@@ -129,6 +156,7 @@ export type GuildAuditEntry = {
 
 export type ManageSectionId =
   | "overview"
+  | "branding"
   | "events"
   | "news"
   | "rankings"
@@ -176,6 +204,8 @@ type GuildStore = {
   servers: GuildServer[];
   rankings: LeaderboardRow[];
   buildReleases: GuildBuildRelease[];
+  /** Viewer JWT permissions from guild manifest (for fine-grained UI gates). */
+  viewerPermissionsByGuild: Record<string, string[]>;
   manageSection: ManageSectionId;
   setManageSection: (section: ManageSectionId) => void;
   inviteMember: (
@@ -205,6 +235,11 @@ type GuildStore = {
   ) => Promise<GuildActionResult>;
   hydrateGuildServers: (guildId: string) => Promise<void>;
   hydrateGuildRankings: (guildId: string) => Promise<void>;
+  hydrateGuildBuilds: (guildId: string) => Promise<void>;
+  patchBuildReleaseSizes: (
+    releaseId: string,
+    sizes: GuildBuildRelease["sizes"],
+  ) => void;
   joinServer: (
     guildId: string,
     serverId: string,
@@ -218,7 +253,20 @@ type GuildStore = {
     guildId: string,
     source: string,
   ) => Promise<GuildActionResult>;
-  saveServer: (server: GuildServer) => Promise<GuildActionResult>;
+  setGuildBranding: (
+    guildId: string,
+    input: {
+      icon?: GuildBrandingDraft;
+      banner?: GuildBrandingDraft;
+    },
+  ) => Promise<GuildActionResult>;
+  saveServer: (
+    server: GuildServer,
+    media?: {
+      iconUpload?: import("../lib/guildBuildApi").GuildBuildImageUpload | null;
+      coverUpload?: import("../lib/guildBuildApi").GuildBuildImageUpload | null;
+    },
+  ) => Promise<GuildActionResult>;
   deleteServer: (
     guildId: string,
     serverId: string,
@@ -309,19 +357,42 @@ export const useGuildStore = create<GuildStore>((set, get) => {
     const guild = guildFromManifest(manifest, index);
     upsertLiveGuild(guild);
     const self = membershipFromViewer(manifest, displayName);
+    const viewerAvatar =
+      useAppStore.getState().currentUser?.avatarUrl ?? null;
+    const selfMember: GuildMember = {
+      ...self,
+      avatarUrl: viewerAvatar,
+    };
 
-    let roster: GuildMember[] = [self];
+    let roster: GuildMember[] = [selfMember];
     try {
       const remote = await fetchGuildMembers(guildId);
       roster = remote.map((row) =>
         membershipFromApiRecord(row, manifest.guild.owner_id),
       );
+      const viewerAvatar =
+        useAppStore.getState().currentUser?.avatarUrl ?? null;
+      const viewerId = useAppStore.getState().currentUser?.id ?? null;
       // Prefer viewer-derived role/name for the signed-in user (richer roles[]).
       roster = roster.map((m) =>
-        m.userId === self.userId ? { ...m, role: self.role, name: self.name } : m,
+        m.userId === selfMember.userId ||
+        (viewerId != null && m.userId === viewerId)
+          ? {
+              ...m,
+              role: selfMember.role,
+              name: selfMember.name,
+              avatarUrl: m.avatarUrl ?? viewerAvatar,
+            }
+          : m,
       );
-      if (!roster.some((m) => m.userId === self.userId)) {
-        roster = [self, ...roster];
+      if (
+        !roster.some(
+          (m) =>
+            m.userId === selfMember.userId ||
+            (viewerId != null && m.userId === viewerId),
+        )
+      ) {
+        roster = [selfMember, ...roster];
       }
     } catch (err) {
       logger.warn(
@@ -349,6 +420,10 @@ export const useGuildStore = create<GuildStore>((set, get) => {
 
     set((state) => ({
       guildCatalogRevision: state.guildCatalogRevision + 1,
+      viewerPermissionsByGuild: {
+        ...state.viewerPermissionsByGuild,
+        [guildId]: manifest.viewer.permissions ?? [],
+      },
       members: [
         ...roster,
         ...state.members.filter((m) => m.guildId !== guildId),
@@ -405,25 +480,7 @@ export const useGuildStore = create<GuildStore>((set, get) => {
               }`,
             );
           });
-        void import("../lib/guildBuildApi")
-          .then(({ fetchGuildBuildReleases }) =>
-            fetchGuildBuildReleases(activeGuildId),
-          )
-          .then((releases) => {
-            set((state) => ({
-              buildReleases: [
-                ...releases,
-                ...state.buildReleases.filter(
-                  (r) =>
-                    r.guildId !== activeGuildId &&
-                    !releases.some((x) => x.id === r.id),
-                ),
-              ],
-            }));
-          })
-          .catch(() => {
-            /* Remote list may 404 until builds API ships. */
-          });
+        void get().hydrateGuildBuilds(activeGuildId);
         void get().hydrateGuildServers(activeGuildId);
         void get().hydrateGuildRankings(activeGuildId);
       }
@@ -438,6 +495,9 @@ export const useGuildStore = create<GuildStore>((set, get) => {
         return;
       }
       set({ hubTab });
+      if (hubTab === "Manage") {
+        set({ manageSection: "overview" });
+      }
       if (hubTab === "Chat") {
         const guildId = get().activeGuildId;
         if (guildId) void get().hydrateGuildChat(guildId);
@@ -449,6 +509,10 @@ export const useGuildStore = create<GuildStore>((set, get) => {
       if (hubTab === "Rankings") {
         const guildId = get().activeGuildId;
         if (guildId) void get().hydrateGuildRankings(guildId);
+      }
+      if (hubTab === "Builds") {
+        const guildId = get().activeGuildId;
+        if (guildId) void get().hydrateGuildBuilds(guildId);
       }
     },
     rankingMetric: "xp",
@@ -557,7 +621,7 @@ export const useGuildStore = create<GuildStore>((set, get) => {
         return {
           chatByGuild: {
             ...state.chatByGuild,
-            [guildId]: [...previous, message],
+            [guildId]: reconcileGuildChatMessages(previous, message),
           },
         };
       });
@@ -593,12 +657,13 @@ export const useGuildStore = create<GuildStore>((set, get) => {
         role,
         channelId,
         authorId: actorId() || undefined,
+        createdAt: new Date().toISOString(),
       };
       const previous = get().chatByGuild[guildId] ?? [];
       set((state) => ({
         chatByGuild: {
           ...state.chatByGuild,
-          [guildId]: [...previous, optimistic],
+          [guildId]: sortChatChronologically([...previous, optimistic]),
         },
       }));
 
@@ -616,8 +681,9 @@ export const useGuildStore = create<GuildStore>((set, get) => {
           return {
             chatByGuild: {
               ...state.chatByGuild,
-              [guildId]: list.map((m) =>
-                m.id === optimisticId ? saved : m,
+              [guildId]: reconcileGuildChatMessages(
+                list.filter((m) => m.id !== optimisticId),
+                saved,
               ),
             },
           };
@@ -655,6 +721,7 @@ export const useGuildStore = create<GuildStore>((set, get) => {
     servers: [],
     rankings: [],
     buildReleases: [],
+    viewerPermissionsByGuild: {},
     manageSection: "overview",
     setManageSection: (manageSection) => set({ manageSection }),
     guildCatalogRevision: 0,
@@ -734,6 +801,12 @@ export const useGuildStore = create<GuildStore>((set, get) => {
         get().setActiveGuild(cards[0].id);
       } else if (current && !cards.some((c) => c.id === current)) {
         get().setActiveGuild(cards[0]?.id ?? "");
+      } else if (current) {
+        // Already on a valid guild — still refresh builds/servers (setActiveGuild
+        // is skipped, so without this the Builds tab stays empty after boot).
+        void get().hydrateGuildBuilds(current);
+        void get().hydrateGuildServers(current);
+        void get().hydrateGuildRankings(current);
       }
 
       void persistGuildSnapshot(get());
@@ -1047,7 +1120,7 @@ export const useGuildStore = create<GuildStore>((set, get) => {
         }));
         void import("../lib/mping").then(({ syncMpingWatchList }) => {
           const addresses = get()
-            .servers.map((s) => s.address)
+            .servers.map((s) => guildServerJoinAddress(s))
             .filter(Boolean);
           return syncMpingWatchList(addresses);
         });
@@ -1079,6 +1152,59 @@ export const useGuildStore = create<GuildStore>((set, get) => {
           }`,
         );
       }
+    },
+    hydrateGuildBuilds: async (guildId) => {
+      if (!guildId) return;
+      try {
+        const { fetchGuildBuildReleases } = await import("../lib/guildBuildApi");
+        const { heuristicGuildBuildSizes } = await import(
+          "../lib/guildBuildSize"
+        );
+        const releases = await fetchGuildBuildReleases(guildId);
+        const withSizes = releases.map((release) => {
+          if (release.sizes.downloadBytes > 0) return release;
+          const guess = heuristicGuildBuildSizes(release);
+          return {
+            ...release,
+            sizes: {
+              downloadBytes: guess.downloadBytes,
+              installedBytes: guess.installedBytes,
+              estimated: true,
+            },
+          };
+        });
+        set((state) => ({
+          buildReleases: [
+            ...withSizes,
+            ...state.buildReleases.filter(
+              (r) =>
+                r.guildId !== guildId && !withSizes.some((x) => x.id === r.id),
+            ),
+          ],
+        }));
+        if (withSizes.length === 0) {
+          logger.info(`Guild builds: empty catalog for ${guildId}`);
+        } else {
+          logger.success(
+            `Guild builds: loaded ${withSizes.length} for ${guildId}`,
+          );
+        }
+      } catch (err) {
+        logger.warn(
+          `Guild builds hydrate failed: ${
+            err instanceof Error ? err.message : String(err)
+          }`,
+        );
+      }
+    },
+    patchBuildReleaseSizes: (releaseId, sizes) => {
+      set((state) => ({
+        buildReleases: state.buildReleases.map((release) =>
+          release.id === releaseId
+            ? { ...release, sizes: { ...release.sizes, ...sizes } }
+            : release,
+        ),
+      }));
     },
     joinServer: async (guildId, serverId) => {
       try {
@@ -1216,7 +1342,66 @@ export const useGuildStore = create<GuildStore>((set, get) => {
         );
       }
     },
-    saveServer: async (server) => {
+    setGuildBranding: async (guildId, input) => {
+      if (!capabilitiesForRole(actor(guildId)?.role).manageDiscord) {
+        return denied();
+      }
+      try {
+        const result = await applyGuildBranding(guildId, input);
+        clearGuildMediaDisplayCache(guildId);
+        const existing = getGuild(guildId);
+        const fallbackBanner = DEFAULT_GUILD_BANNER;
+        upsertLiveGuild({
+          ...(existing ?? {
+            id: guildId,
+            name: guildId,
+            tag: "CF",
+            level: 1,
+            xp: 0,
+            xpMax: 100,
+            memberCount: 0,
+            motto: "",
+            accent: "from-primary-dvivd to-primary-muted",
+            banner: fallbackBanner,
+            joined: true,
+          }),
+          icon: result.iconChanged
+            ? result.iconUrl || null
+            : (existing?.icon ?? null),
+          banner: result.bannerChanged
+            ? result.bannerUrl || fallbackBanner
+            : (existing?.banner ?? fallbackBanner),
+        });
+        set((state) => ({
+          guildCatalogRevision: state.guildCatalogRevision + 1,
+        }));
+        audit(
+          guildId,
+          "Guild branding updated",
+          [
+            result.iconChanged
+              ? result.iconUrl
+                ? "icon set"
+                : "icon cleared"
+              : null,
+            result.bannerChanged
+              ? result.bannerUrl
+                ? "banner set"
+                : "banner cleared"
+              : null,
+          ]
+            .filter(Boolean)
+            .join(", ") || "updated",
+        );
+        void persistGuildSnapshot(get());
+        return { ok: true, message: "Guild icon and banner saved." };
+      } catch (err) {
+        return denied(
+          err instanceof Error ? err.message : "Could not save guild branding.",
+        );
+      }
+    },
+    saveServer: async (server, media) => {
       if (!capabilitiesForRole(actor(server.guildId)?.role).manageServers) {
         return denied();
       }
@@ -1236,6 +1421,11 @@ export const useGuildStore = create<GuildStore>((set, get) => {
           server.status,
         );
         const isActive = server.status === "online";
+        const iconUrl = server.iconUrl?.trim() || null;
+        const coverUrl =
+          server.coverUrl?.trim() ||
+          (server.thumbnail?.startsWith("http") ? server.thumbnail.trim() : null) ||
+          null;
         const saved = exists
           ? await updateGuildServer(server.guildId, server.id, {
               name: server.name,
@@ -1245,6 +1435,10 @@ export const useGuildStore = create<GuildStore>((set, get) => {
               required_build: server.requiredBuildVersion || "any",
               build_id: server.requiredBuildId || undefined,
               is_active: isActive,
+              iconUrl,
+              coverUrl,
+              iconUpload: media?.iconUpload ?? null,
+              coverUpload: media?.coverUpload ?? null,
             })
           : await createGuildServer(server.guildId, {
               name: server.name,
@@ -1254,6 +1448,10 @@ export const useGuildStore = create<GuildStore>((set, get) => {
               requiredBuild: server.requiredBuildVersion || "any",
               buildId: server.requiredBuildId || undefined,
               isActive,
+              iconUrl,
+              coverUrl,
+              iconUpload: media?.iconUpload ?? null,
+              coverUpload: media?.coverUpload ?? null,
             });
         set((state) => ({
           servers: exists
@@ -1268,7 +1466,9 @@ export const useGuildStore = create<GuildStore>((set, get) => {
           saved.name,
         );
         void import("../lib/mping").then(({ syncMpingWatchList }) =>
-          syncMpingWatchList(get().servers.map((s) => s.address)),
+          syncMpingWatchList(
+            get().servers.map((s) => guildServerJoinAddress(s)),
+          ),
         );
         return { ok: true, message: `${saved.name} saved to CultForge.` };
       } catch (err) {
@@ -1291,13 +1491,18 @@ export const useGuildStore = create<GuildStore>((set, get) => {
         }));
         audit(guildId, "Server removed", target?.name ?? serverId);
         void import("../lib/mping").then(({ syncMpingWatchList }) =>
-          syncMpingWatchList(get().servers.map((s) => s.address)),
+          syncMpingWatchList(
+            get().servers.map((s) => guildServerJoinAddress(s)),
+          ),
         );
         return { ok: true, message: "Server removed." };
       } catch (err) {
-        return denied(
-          err instanceof Error ? err.message : "Could not delete server.",
-        );
+        const raw =
+          err instanceof Error ? err.message : "Could not delete server.";
+        const message = /invalid json/i.test(raw)
+          ? "Could not reach the guild service. Try again in a moment."
+          : raw.replace(/^Could not delete server:\s*/i, "");
+        return denied(message.startsWith("Could not") ? message : `Could not delete server: ${message}`);
       }
     },
     saveRankingRow: (row) => {
@@ -1387,6 +1592,8 @@ export const useGuildStore = create<GuildStore>((set, get) => {
           coverUpload,
           isPublished: release.isPublished ?? true,
           isFeatured: release.isFeatured ?? false,
+          isPublicCatalog: release.isPublicCatalog ?? false,
+          keywords: release.keywords ?? [],
           requiredMods: release.requiredMods ?? [],
           optionalMods: release.optionalMods ?? [],
           shaders: release.shaders ?? [],

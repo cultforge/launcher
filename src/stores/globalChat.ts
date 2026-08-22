@@ -49,7 +49,6 @@ export const useGlobalChatStore = create<GlobalChatStore>((set, get) => ({
     })),
   setDraft: (draft) => set({ draft }),
   connect: () => {
-    set({ connected: true });
     const disconnect = globalChatClient.connect(get().receive);
     return () => {
       disconnect();
@@ -58,7 +57,11 @@ export const useGlobalChatStore = create<GlobalChatStore>((set, get) => ({
   },
   receive: (event) => {
     if (event.type === "presence") {
-      set({ online: event.payload.online });
+      const p = event.payload as { online: number; connected?: boolean };
+      set({
+        online: p.online >= 0 ? p.online : 0,
+        ...(p.connected !== undefined ? { connected: p.connected } : {}),
+      });
       return;
     }
     if (event.type === "history") {

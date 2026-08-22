@@ -11,7 +11,7 @@ import GuildsPage from "./pages/GuildsPage";
 import AdminPage from "./pages/AdminPage";
 import { PlayerProfilePage } from "./pages/PlayerProfilePage";
 import { useProfileRouteStore } from "../../../stores/profileRoute";
-import { useGuildStore } from "../../../stores/guilds";
+import { isHomeBuildsView } from "../../../lib/homeNav";
 
 const pageMotion = {
   initial: { opacity: 0, y: 10 },
@@ -26,16 +26,11 @@ function Viewport() {
   const profileTarget = useProfileRouteStore((s) => s.target);
   const profileOrigin = useProfileRouteStore((s) => s.origin);
   const closeProfile = useProfileRouteStore((s) => s.closeProfile);
-  const guildHubTab = useGuildStore((s) => s.hubTab);
   const showRail =
     primaryTab !== "Store" &&
     primaryTab !== "Admin" &&
-    !profileTarget &&
-    !(
-      primaryTab === "Guilds" &&
-      sideItem === "Guilds" &&
-      guildHubTab === "Manage"
-    );
+    primaryTab !== "Guilds" &&
+    !profileTarget;
 
   useEffect(() => {
     if (
@@ -76,8 +71,12 @@ function Viewport() {
               <PlayerProfilePage />
             ) : (
               <>
-                {primaryTab === "Home" && <HomePage />}
-                {primaryTab === "Builds" && <BuildsPage />}
+                {isHomeBuildsView(primaryTab, sideItem) ? (
+                  <BuildsPage />
+                ) : null}
+                {primaryTab === "Home" && !isHomeBuildsView(primaryTab, sideItem) ? (
+                  <HomePage />
+                ) : null}
                 {primaryTab === "Store" && <StorePage />}
                 {primaryTab === "Mods" && <ModsPage />}
                 {primaryTab === "Servers" && <ServersPage />}

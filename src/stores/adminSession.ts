@@ -1,19 +1,19 @@
 import { create } from "zustand";
 import {
-  adminStepUp,
-  fetchAdminCatalog,
-  fetchAdminWhoami,
+  AdminClient,
+  capabilityBadgeState,
   type AdminCatalogEntry,
   type AdminStepUpHints,
-} from "../lib/adminApi";
-import {
-  groupCatalogEntries,
-} from "../lib/adminCatalog";
+  type CapabilityBadgeState,
+} from "../lib/adminClient";
+import { groupCatalogEntries } from "../lib/adminCatalog";
 import { ClientHttpError } from "../lib/client";
 import { logger } from "../lib/logger";
 
 type AdminSessionStore = {
   isPlatformAdmin: boolean | null;
+  userId: string | null;
+  handle: string | null;
   capabilityActive: boolean;
   capabilityExpiresAt: number | null;
   stepUpHints: AdminStepUpHints | null;
@@ -22,11 +22,13 @@ type AdminSessionStore = {
   loadingWhoami: boolean;
   loadingCatalog: boolean;
   stepUpError: string | null;
+  badgeState: CapabilityBadgeState;
   refreshWhoami: () => Promise<void>;
   stepUp: () => Promise<boolean>;
   loadCatalog: () => Promise<void>;
   clearAdminSession: () => void;
   handleCapabilityUnauthorized: () => void;
+  recomputeBadge: () => void;
 };
 
 function stepUpFailureMessage(err: unknown): string {
@@ -48,8 +50,22 @@ function stepUpFailureMessage(err: unknown): string {
   return "Admin step-up failed. Sign out, sign in via OAuth again, then retry.";
 }
 
+function computeBadge(
+  capabilityActive: boolean,
+  capabilityExpiresAt: number | null,
+  hints: AdminStepUpHints | null,
+): CapabilityBadgeState {
+  return capabilityBadgeState({
+    capabilityActive,
+    capabilityExpiresAt,
+    sessionFreshEnough: hints?.sessionFreshEnough ?? null,
+  });
+}
+
 export const useAdminSessionStore = create<AdminSessionStore>((set, get) => ({
   isPlatformAdmin: null,
+  userId: null,
+  handle: null,
   capabilityActive: false,
   capabilityExpiresAt: null,
   stepUpHints: null,
@@ -58,18 +74,43 @@ export const useAdminSessionStore = create<AdminSessionStore>((set, get) => ({
   loadingWhoami: false,
   loadingCatalog: false,
   stepUpError: null,
+  badgeState: "needs_step_up",
+
+  recomputeBadge: () => {
+    const s = get();
+    set({
+      badgeState: computeBadge(
+        s.capabilityActive,
+        s.capabilityExpiresAt,
+        s.stepUpHints,
+      ),
+    });
+  },
 
   refreshWhoami: async () => {
     set({ loadingWhoami: true });
     try {
-      const { whoami, local, hints } = await fetchAdminWhoami();
+      const { whoami, local, hints } = await AdminClient.whoami();
+      const userId =
+        typeof whoami.user_id === "string"
+          ? whoami.user_id
+          : typeof whoami.userId === "string"
+            ? whoami.userId
+            : null;
       set({
         isPlatformAdmin: Boolean(whoami.admin),
+        userId,
+        handle: userId,
         capabilityActive: local.capability_active,
         capabilityExpiresAt: local.capability_expires_at,
         stepUpHints: hints,
         loadingWhoami: false,
         stepUpError: null,
+        badgeState: computeBadge(
+          local.capability_active,
+          local.capability_expires_at,
+          hints,
+        ),
       });
     } catch (err) {
       logger.debug(
@@ -77,10 +118,13 @@ export const useAdminSessionStore = create<AdminSessionStore>((set, get) => ({
       );
       set({
         isPlatformAdmin: false,
+        userId: null,
+        handle: null,
         capabilityActive: false,
         capabilityExpiresAt: null,
         stepUpHints: null,
         loadingWhoami: false,
+        badgeState: "needs_step_up",
       });
     }
   },
@@ -90,16 +134,25 @@ export const useAdminSessionStore = create<AdminSessionStore>((set, get) => ({
     if (hints && !hints.sessionFreshEnough) {
       const message =
         "Session is too old for admin step-up. Sign out, sign in via OAuth, then try again.";
-      set({ stepUpError: message });
+      set({
+        stepUpError: message,
+        badgeState: "relogin",
+      });
       return false;
     }
     set({ stepUpError: null });
     try {
-      const local = await adminStepUp();
+      const local = await AdminClient.stepUp();
+      const nextHints = get().stepUpHints;
       set({
         capabilityActive: local.capability_active,
         capabilityExpiresAt: local.capability_expires_at,
         stepUpError: null,
+        badgeState: computeBadge(
+          local.capability_active,
+          local.capability_expires_at,
+          nextHints,
+        ),
       });
       if (local.capability_active) {
         await get().loadCatalog();
@@ -111,6 +164,7 @@ export const useAdminSessionStore = create<AdminSessionStore>((set, get) => ({
         capabilityActive: false,
         capabilityExpiresAt: null,
         stepUpError: message,
+        badgeState: "expired",
       });
       return false;
     }
@@ -120,7 +174,7 @@ export const useAdminSessionStore = create<AdminSessionStore>((set, get) => ({
     if (!get().capabilityActive && get().isPlatformAdmin !== true) return;
     set({ loadingCatalog: true });
     try {
-      const { entries } = await fetchAdminCatalog();
+      const { entries } = await AdminClient.catalog();
       set({
         catalog: entries,
         groupedCatalog: groupCatalogEntries(entries),
@@ -137,12 +191,15 @@ export const useAdminSessionStore = create<AdminSessionStore>((set, get) => ({
   clearAdminSession: () => {
     set({
       isPlatformAdmin: null,
+      userId: null,
+      handle: null,
       capabilityActive: false,
       capabilityExpiresAt: null,
       stepUpHints: null,
       catalog: null,
       groupedCatalog: null,
       stepUpError: null,
+      badgeState: "needs_step_up",
     });
   },
 
@@ -153,6 +210,7 @@ export const useAdminSessionStore = create<AdminSessionStore>((set, get) => ({
       catalog: null,
       groupedCatalog: null,
       stepUpError: "Admin capability expired. Step up again to continue.",
+      badgeState: "expired",
     });
   },
 }));

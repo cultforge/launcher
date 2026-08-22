@@ -10,8 +10,16 @@ import { SideMenus } from "../../../manifest";
 import { useThemeStore } from "../../../stores/theme";
 import { useProfileRouteStore } from "../../../stores/profileRoute";
 import { useAdminSessionStore } from "../../../stores/adminSession";
+import { useAdminRouteStore } from "../../../stores/adminRoute";
+import { useServerAdminStore } from "../../../stores/serverAdmin";
 import { useUpdatesStore } from "../../../stores/updates";
 import { useMemo } from "react";
+import { useGuildStore } from "../../../stores/guilds";
+import {
+  communityLabelToHubTab,
+  isCommunityNavActive,
+} from "../../../lib/guildUi";
+import { HOME_BUILDS_SIDE, isHomeBuildsView } from "../../../lib/homeNav";
 
 function SideBadge({ badge }: { badge: string | number }) {
   const isNew = String(badge).toUpperCase() === "NEW";
@@ -126,8 +134,16 @@ function NavigationBar({ collapsed, onToggle }: Omit<NavigationBarProps, "smenu"
   const pendingUpdates = useUpdatesStore(
     (s) => s.items.filter((u) => u.status !== "done").length,
   );
+  const hubTab = useGuildStore((s) => s.hubTab);
+  const discoverOpen = useGuildStore((s) => s.discoverOpen);
+  const setHubTab = useGuildStore((s) => s.setHubTab);
+  const setDiscoverOpen = useGuildStore((s) => s.setDiscoverOpen);
 
   const smenu = useMemo(() => {
+    if (primaryTab === "Servers" && SideMenus.Servers.length > 0) {
+      return SideMenus.Servers;
+    }
+    // Always show the full Home menu — header tab controls viewport; sidenav stays stable.
     const withLiveBadges = SideMenus.Home.map((section) => ({
       ...section,
       options: section.options.map((item) => {
@@ -140,7 +156,9 @@ function NavigationBar({ collapsed, onToggle }: Omit<NavigationBarProps, "smenu"
     }));
     if (!isPlatformAdmin) return withLiveBadges;
     return withLiveBadges.map((section) => {
-      if (section.section !== "Account") return section;
+      if (section.section !== "You") return section;
+      // Avoid duplicate Admin if already present
+      if (section.options.some((o) => o.label === "Admin")) return section;
       return {
         ...section,
         options: [
@@ -153,9 +171,11 @@ function NavigationBar({ collapsed, onToggle }: Omit<NavigationBarProps, "smenu"
         ],
       };
     });
-  }, [isPlatformAdmin, pendingUpdates]);
+  }, [isPlatformAdmin, pendingUpdates, primaryTab]);
 
   if (primaryTab === "Store") return null;
+  // Platform admin is a full-bleed console — keep launcher chrome but no Home rail noise.
+  if (primaryTab === "Admin") return null;
 
   return (
     <aside
@@ -215,23 +235,61 @@ function NavigationBar({ collapsed, onToggle }: Omit<NavigationBarProps, "smenu"
               <div className="w-6 h-px bg-border-subtle my-1" />
             )}
             <div className={`flex flex-col ${collapsed ? "gap-1.5" : "gap-0.5"}`}>
-              {section.options.map((item) => (
+              {section.options.map((item) => {
+                const guildShortcut = communityLabelToHubTab(item.label);
+                const isBuildsHome =
+                  item.label === HOME_BUILDS_SIDE &&
+                  isHomeBuildsView(primaryTab, sideItem);
+                const isActive =
+                  guildShortcut != null
+                    ? isCommunityNavActive(
+                        item.label,
+                        primaryTab,
+                        hubTab,
+                        discoverOpen,
+                      )
+                    : isBuildsHome ||
+                      (item.label === sideItem &&
+                        (item.primaryTab === primaryTab ||
+                          (item.primaryTab === "Home" &&
+                            primaryTab === "Home")));
+                return (
                 <SideNavItem
                   key={item.label}
                   label={item.label}
                   icon={item.icon}
                   collapsed={collapsed}
                   badge={item.badge}
-                  isActive={sideItem === item.label}
+                  isActive={isActive}
                   onClick={() => {
                     closeProfile();
+                    if (item.primaryTab === "Guilds" && guildShortcut) {
+                      setPrimaryTab("Guilds");
+                      setSideItem("Guilds");
+                      setDiscoverOpen(false);
+                      setHubTab(guildShortcut);
+                      return;
+                    }
+                    if (item.label === HOME_BUILDS_SIDE) {
+                      setPrimaryTab("Home");
+                      setSideItem(HOME_BUILDS_SIDE);
+                      return;
+                    }
+                    if (item.primaryTab === "Admin" || item.label === "Admin") {
+                      useAdminRouteStore.getState().reset();
+                      useServerAdminStore.getState().close();
+                      setSideItem("Admin");
+                      setPrimaryTab("Admin");
+                      return;
+                    }
                     setSideItem(item.label);
                     if (item.primaryTab) {
                       setPrimaryTab(item.primaryTab as PrimaryTab);
                     }
                   }}
                 />
-              ))}
+              );
+              })}
             </div>
           </div>
         ))}

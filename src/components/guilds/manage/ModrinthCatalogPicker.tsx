@@ -8,12 +8,20 @@ import {
   type ModrinthVersion,
 } from "../../../lib/modrinth";
 import { cn } from "../../../lib/cn";
+import { Icon } from "../../ico";
+import { AppIcons } from "../../icons";
+import { ModrinthPreviewModal } from "./ModrinthPreviewModal";
 
 const fieldClass =
-  "h-9 w-full rounded-lg border border-border-subtle bg-black/25 px-3 text-[12px] text-text-primary outline-none placeholder:text-text-disabled focus:border-primary-base/45";
+  "h-10 w-full rounded-xl border border-border-subtle bg-black/25 px-3.5 text-[13px] text-text-primary outline-none placeholder:text-text-disabled focus:border-primary-base/45";
 
 export type ModrinthPickWithOptional = ModrinthPickResult & {
   optional?: boolean;
+};
+
+type PreviewTarget = {
+  id: string;
+  slug: string;
 };
 
 type Props = {
@@ -23,16 +31,140 @@ type Props = {
   gameVersion?: string;
   selected: ModrinthPickWithOptional[];
   onChange: (next: ModrinthPickWithOptional[]) => void;
-  /** When true, each selected mod can be marked optional instead of a second picker. */
   allowOptionalToggle?: boolean;
-  /** Shorter results list for denser layouts. */
   compact?: boolean;
+  variant?: "stack" | "split";
 };
 
 function primaryUrl(version: ModrinthVersion): string {
   const file =
     version.files.find((f) => f.primary) ?? version.files[0] ?? null;
   return file?.url ?? "";
+}
+
+function SelectedRow({
+  item,
+  allowOptionalToggle,
+  selected,
+  onChange,
+  onView,
+}: {
+  item: ModrinthPickWithOptional;
+  allowOptionalToggle: boolean;
+  selected: ModrinthPickWithOptional[];
+  onChange: (next: ModrinthPickWithOptional[]) => void;
+  onView: () => void;
+}) {
+  return (
+    <li className="build-basket-item group flex items-center gap-2 rounded-lg px-2 py-2 transition-colors hover:bg-white/4">
+      <span className="min-w-0 flex-1">
+        <span className="block truncate text-[12px] font-medium text-text-primary">
+          {item.name}
+        </span>
+        <span className="block truncate text-[10px] text-text-muted">
+          v{item.version}
+          {allowOptionalToggle && item.optional ? " · optional" : null}
+        </span>
+      </span>
+      {allowOptionalToggle ? (
+        <label className="flex shrink-0 items-center gap-1.5 text-[10px] text-text-muted cursor-pointer select-none">
+          <input
+            type="checkbox"
+            checked={Boolean(item.optional)}
+            onChange={(e) =>
+              onChange(
+                selected.map((s) =>
+                  s.projectId === item.projectId
+                    ? { ...s, optional: e.target.checked }
+                    : s,
+                ),
+              )
+            }
+            className="accent-primary-base"
+          />
+          Opt.
+        </label>
+      ) : null}
+      <button
+        type="button"
+        onClick={onView}
+        className="shrink-0 rounded-md px-2 py-1 text-[10px] font-medium text-primary-base hover:bg-primary-base/10 cursor-pointer"
+      >
+        View
+      </button>
+      <button
+        type="button"
+        aria-label={`Remove ${item.name}`}
+        className="shrink-0 rounded-md px-2 py-1 text-[10px] font-medium text-text-muted opacity-0 transition-opacity group-hover:opacity-100 hover:bg-state-error/10 hover:text-state-error cursor-pointer"
+        onClick={() =>
+          onChange(selected.filter((s) => s.projectId !== item.projectId))
+        }
+      >
+        Remove
+      </button>
+    </li>
+  );
+}
+
+function SearchResultRow({
+  hit,
+  already,
+  picking,
+  onAdd,
+  onPreview,
+}: {
+  hit: ModrinthHit;
+  already: boolean;
+  picking: boolean;
+  onAdd: () => void;
+  onPreview: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      disabled={already || picking}
+      onClick={(e) => {
+        if (e.ctrlKey || e.metaKey) {
+          e.preventDefault();
+          onPreview();
+          return;
+        }
+        onAdd();
+      }}
+      className={cn(
+        "build-search-row flex w-full items-center gap-3 border-b border-border-subtle/40 px-3 py-2.5 text-left last:border-0 cursor-pointer disabled:opacity-45",
+        "hover:bg-primary-base/8",
+      )}
+    >
+      {hit.icon_url ? (
+        <img
+          src={hit.icon_url}
+          alt=""
+          className="h-9 w-9 shrink-0 rounded-lg object-cover"
+        />
+      ) : (
+        <span className="h-9 w-9 shrink-0 rounded-lg bg-bg-elevated" />
+      )}
+      <span className="min-w-0 flex-1">
+        <span className="block truncate text-[13px] font-medium text-text-primary">
+          {hit.title}
+        </span>
+        <span className="block truncate text-[10px] text-text-muted">
+          {(hit.downloads / 1000).toFixed(0)}k downloads
+        </span>
+      </span>
+      <span
+        className={cn(
+          "shrink-0 rounded-full px-2.5 py-1 text-[10px] font-semibold",
+          already
+            ? "bg-white/6 text-text-disabled"
+            : "bg-primary-base/14 text-primary-base",
+        )}
+      >
+        {already ? "Added" : picking ? "…" : "Add"}
+      </span>
+    </button>
+  );
 }
 
 export function ModrinthCatalogPicker({
@@ -44,11 +176,24 @@ export function ModrinthCatalogPicker({
   onChange,
   allowOptionalToggle = false,
   compact = false,
+  variant = "stack",
 }: Props) {
   const [query, setQuery] = useState("");
   const [hits, setHits] = useState<ModrinthHit[]>([]);
   const [busy, setBusy] = useState(false);
   const [pickingId, setPickingId] = useState<string | null>(null);
+  const [filterPaused, setFilterPaused] = useState(false);
+  const [previewTarget, setPreviewTarget] = useState<PreviewTarget | null>(
+    null,
+  );
+
+  const versionFilterActive =
+    !filterPaused && Boolean(gameVersion?.trim());
+  const loaderFilterActive =
+    !filterPaused &&
+    projectType === "mod" &&
+    Boolean(loader?.trim()) &&
+    loader !== "vanilla";
 
   useEffect(() => {
     let cancelled = false;
@@ -57,9 +202,9 @@ export function ModrinthCatalogPicker({
       void searchModrinth({
         query: query.trim(),
         type: projectType,
-        loader: projectType === "mod" ? loader : undefined,
-        version: gameVersion || undefined,
-        limit: compact ? 8 : 12,
+        loader: loaderFilterActive ? loader : undefined,
+        version: versionFilterActive ? gameVersion : undefined,
+        limit: variant === "split" ? 20 : compact ? 8 : 12,
       })
         .then((res) => {
           if (!cancelled) setHits(res.hits);
@@ -79,11 +224,28 @@ export function ModrinthCatalogPicker({
       cancelled = true;
       window.clearTimeout(handle);
     };
-  }, [query, projectType, loader, gameVersion, compact]);
+  }, [
+    query,
+    projectType,
+    loader,
+    gameVersion,
+    compact,
+    variant,
+    loaderFilterActive,
+    versionFilterActive,
+  ]);
+
+  const openPreview = (target: PreviewTarget) => {
+    setPreviewTarget(target);
+  };
 
   const addHit = async (hit: ModrinthHit) => {
-    if (selected.some((s) => s.slug === hit.slug || s.projectId === hit.project_id)) {
-      toast.message("Already added");
+    if (
+      selected.some(
+        (s) => s.slug === hit.slug || s.projectId === hit.project_id,
+      )
+    ) {
+      toast.message("Already in your pack");
       return;
     }
     setPickingId(hit.project_id);
@@ -91,13 +253,15 @@ export function ModrinthCatalogPicker({
       const versions = await getModrinthVersions(hit.project_id, {
         gameVersions: gameVersion ? [gameVersion] : undefined,
         loaders:
-          projectType === "mod" && loader
+          projectType === "mod" && loader && loader !== "vanilla"
             ? [loader]
             : undefined,
       });
       const version = versions[0];
       if (!version) {
-        toast.error("No compatible Modrinth version for this MC/loader.");
+        toast.error(
+          `No version for ${gameVersion ?? "this MC"}${loader ? ` / ${loader}` : ""}. Pause filtering to browse all, or change pack settings.`,
+        );
         return;
       }
       const sourceUrl = primaryUrl(version);
@@ -118,6 +282,7 @@ export function ModrinthCatalogPicker({
           optional: false,
         },
       ]);
+      toast.success(`Added ${hit.title}`);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Could not add project");
     } finally {
@@ -127,130 +292,213 @@ export function ModrinthCatalogPicker({
 
   const requiredCount = selected.filter((s) => !s.optional).length;
   const optionalCount = selected.filter((s) => s.optional).length;
+  const countLabel = allowOptionalToggle
+    ? `${requiredCount} required · ${optionalCount} optional`
+    : `${selected.length} in pack`;
+
+  const filterBadge =
+    versionFilterActive || loaderFilterActive ? (
+      <span className="rounded-full bg-primary-base/12 px-2.5 py-1 text-[10px] font-medium text-primary-base">
+        {gameVersion}
+        {loaderFilterActive ? ` · ${loader}` : ""}
+      </span>
+    ) : (
+      <span className="rounded-full bg-white/6 px-2.5 py-1 text-[10px] text-text-muted">
+        Showing all versions
+      </span>
+    );
+
+  const filterToggle = (
+    <button
+      type="button"
+      onClick={() => setFilterPaused((p) => !p)}
+      title={
+        filterPaused
+          ? "Filter results to your pack's Minecraft version and loader"
+          : "Show all Modrinth results regardless of version"
+      }
+      className={cn(
+        "inline-flex cursor-pointer items-center gap-1.5 rounded-full border px-2.5 py-1 text-[10px] font-semibold transition-colors",
+        filterPaused
+          ? "border-white/12 bg-white/5 text-text-secondary hover:bg-white/8"
+          : "border-primary-base/25 bg-primary-base/8 text-primary-base hover:bg-primary-base/12",
+      )}
+    >
+      <Icon
+        icon={filterPaused ? AppIcons.Play : AppIcons.Pause}
+        size={12}
+      />
+      {filterPaused ? "Filter to pack" : "Show all"}
+    </button>
+  );
+
+  const resultsBody =
+    busy && hits.length === 0 ? (
+      <p className="px-4 py-8 text-center text-[12px] text-text-muted">
+        Searching Modrinth…
+      </p>
+    ) : hits.length === 0 ? (
+      <p className="px-4 py-8 text-center text-[12px] text-text-muted">
+        {query.trim()
+          ? "No matches — try another search or pause filtering"
+          : "Type to search Modrinth"}
+      </p>
+    ) : (
+      hits.map((hit) => {
+        const already = selected.some(
+          (s) => s.projectId === hit.project_id || s.slug === hit.slug,
+        );
+        return (
+          <SearchResultRow
+            key={hit.project_id}
+            hit={hit}
+            already={already}
+            picking={pickingId === hit.project_id}
+            onAdd={() => void addHit(hit)}
+            onPreview={() =>
+              openPreview({ id: hit.project_id, slug: hit.slug })
+            }
+          />
+        );
+      })
+    );
+
+  const basketBody =
+    selected.length === 0 ? (
+      <div className="flex flex-1 flex-col items-center justify-center px-4 py-8 text-center">
+        <p className="text-[13px] font-medium text-text-secondary">
+          Nothing here yet
+        </p>
+        <p className="mt-1 max-w-[200px] text-[11px] leading-relaxed text-text-muted">
+          Search and tap Add. Ctrl+click a result to preview on Modrinth.
+        </p>
+      </div>
+    ) : (
+      <ul className="flex flex-col gap-0.5 p-1.5">
+        {selected.map((item) => (
+          <SelectedRow
+            key={`${item.projectId}:${item.versionId}`}
+            item={item}
+            allowOptionalToggle={allowOptionalToggle}
+            selected={selected}
+            onChange={onChange}
+            onView={() =>
+              openPreview({ id: item.projectId, slug: item.slug })
+            }
+          />
+        ))}
+      </ul>
+    );
+
+  const previewModal = (
+    <ModrinthPreviewModal
+      open={Boolean(previewTarget)}
+      projectIdOrSlug={previewTarget?.slug ?? previewTarget?.id ?? null}
+      gameVersion={gameVersion}
+      loader={projectType === "mod" ? loader : undefined}
+      onClose={() => setPreviewTarget(null)}
+    />
+  );
+
+  if (variant === "split") {
+    return (
+      <>
+        <div className="build-picker-split flex min-h-0 flex-1 flex-col gap-3">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <p className="text-[14px] font-semibold text-text-primary">
+              {label}
+            </p>
+            <span className="text-[11px] text-text-muted">{countLabel}</span>
+          </div>
+
+          <div className="build-picker-grid grid min-h-0 flex-1 grid-cols-1 gap-3 lg:grid-cols-[minmax(0,1fr)_280px]">
+            <div className="build-picker-browse flex min-h-0 flex-col gap-2.5 rounded-xl border border-border-subtle bg-black/15 p-3">
+              <input
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                className={fieldClass}
+                placeholder={`Search ${projectType}s on Modrinth…`}
+                autoFocus
+              />
+              <div className="flex flex-wrap items-center gap-2">
+                {filterBadge}
+                {filterToggle}
+                <span className="text-[10px] text-text-disabled">
+                  Ctrl+click to preview
+                </span>
+              </div>
+              <div className="scrollbar-cultforge min-h-0 flex-1 overflow-y-auto rounded-lg border border-border-subtle/60 bg-bg-app/40">
+                {resultsBody}
+              </div>
+            </div>
+
+            <div className="build-picker-basket flex min-h-[200px] flex-col rounded-xl border border-border-subtle bg-black/20 lg:min-h-0">
+              <div className="shrink-0 border-b border-border-subtle/60 px-3 py-2.5">
+                <p className="text-[11px] font-semibold uppercase tracking-wider text-text-muted">
+                  In your pack
+                </p>
+                <p className="text-[10px] text-text-disabled">{countLabel}</p>
+              </div>
+              <div className="scrollbar-cultforge flex min-h-0 flex-1 flex-col overflow-y-auto">
+                {basketBody}
+              </div>
+            </div>
+          </div>
+        </div>
+        {previewModal}
+      </>
+    );
+  }
 
   return (
-    <div className="flex flex-col gap-2.5">
-      <div className="flex items-center justify-between gap-2">
-        <span className="text-[10px] font-semibold uppercase tracking-wider text-text-muted">
-          {label}
-        </span>
-        <span className="text-[9px] text-text-disabled">
-          {allowOptionalToggle
-            ? `${requiredCount} required · ${optionalCount} optional`
-            : `${selected.length} selected`}
-        </span>
-      </div>
+    <>
+      <div className="flex flex-col gap-2.5">
+        <div className="flex items-center justify-between gap-2">
+          <span className="text-[10px] font-semibold uppercase tracking-wider text-text-muted">
+            {label}
+          </span>
+          <span className="text-[9px] text-text-disabled">{countLabel}</span>
+        </div>
 
-      {selected.length > 0 && (
-        <ul className="flex flex-col gap-1.5">
-          {selected.map((item) => (
-            <li
-              key={`${item.projectId}:${item.versionId}`}
-              className="flex items-center gap-2 rounded-lg border border-border-subtle bg-bg-elevated/35 px-2.5 py-1.5"
-            >
-              <span className="min-w-0 flex-1 truncate text-[11px] text-text-primary">
-                {item.name}{" "}
-                <span className="text-text-muted">v{item.version}</span>
-              </span>
-              {allowOptionalToggle && (
-                <label className="flex shrink-0 items-center gap-1.5 text-[9px] text-text-muted cursor-pointer select-none">
-                  <input
-                    type="checkbox"
-                    checked={Boolean(item.optional)}
-                    onChange={(e) =>
-                      onChange(
-                        selected.map((s) =>
-                          s.projectId === item.projectId
-                            ? { ...s, optional: e.target.checked }
-                            : s,
-                        ),
-                      )
-                    }
-                    className="accent-primary-base"
-                  />
-                  Optional
-                </label>
-              )}
-              <button
-                type="button"
-                className="shrink-0 text-[9px] text-state-error cursor-pointer"
-                onClick={() =>
-                  onChange(selected.filter((s) => s.projectId !== item.projectId))
+        <div className="flex flex-wrap items-center gap-2">
+          {filterBadge}
+          {filterToggle}
+        </div>
+
+        <input
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          className={fieldClass}
+          placeholder={`Search Modrinth ${projectType}s…`}
+        />
+
+        <div
+          className={cn(
+            "scrollbar-cultforge overflow-y-auto rounded-lg border border-border-subtle",
+            compact ? "max-h-44" : "max-h-52",
+          )}
+        >
+          {resultsBody}
+        </div>
+
+        {selected.length > 0 ? (
+          <ul className="flex flex-col gap-1.5">
+            {selected.map((item) => (
+              <SelectedRow
+                key={`${item.projectId}:${item.versionId}`}
+                item={item}
+                allowOptionalToggle={allowOptionalToggle}
+                selected={selected}
+                onChange={onChange}
+                onView={() =>
+                  openPreview({ id: item.projectId, slug: item.slug })
                 }
-              >
-                Remove
-              </button>
-            </li>
-          ))}
-        </ul>
-      )}
-
-      <input
-        value={query}
-        onChange={(e) => setQuery(e.target.value)}
-        className={fieldClass}
-        placeholder={`Search Modrinth ${projectType}s…`}
-      />
-
-      <div
-        className={cn(
-          "scrollbar-cultforge overflow-y-auto rounded-lg border border-border-subtle",
-          compact ? "max-h-44" : "max-h-52",
-        )}
-      >
-        {busy && hits.length === 0 ? (
-          <p className="px-3 py-4 text-center text-[10px] text-text-muted">
-            Searching…
-          </p>
-        ) : hits.length === 0 ? (
-          <p className="px-3 py-4 text-center text-[10px] text-text-muted">
-            No results
-          </p>
-        ) : (
-          hits.map((hit) => {
-            const already = selected.some(
-              (s) => s.projectId === hit.project_id || s.slug === hit.slug,
-            );
-            return (
-              <button
-                key={hit.project_id}
-                type="button"
-                disabled={already || pickingId === hit.project_id}
-                onClick={() => void addHit(hit)}
-                className={cn(
-                  "flex w-full items-center gap-2 border-b border-border-subtle/50 px-2.5 py-2 text-left last:border-0 cursor-pointer disabled:opacity-40",
-                  "hover:bg-primary-base/8",
-                )}
-              >
-                {hit.icon_url ? (
-                  <img
-                    src={hit.icon_url}
-                    alt=""
-                    className="h-7 w-7 rounded-md object-cover"
-                  />
-                ) : (
-                  <span className="h-7 w-7 rounded-md bg-bg-elevated" />
-                )}
-                <span className="min-w-0 flex-1">
-                  <span className="block truncate text-[11px] font-medium text-text-primary">
-                    {hit.title}
-                  </span>
-                  <span className="block truncate text-[9px] text-text-muted">
-                    {hit.slug} · {(hit.downloads / 1000).toFixed(0)}k downloads
-                  </span>
-                </span>
-                <span className="text-[9px] font-medium text-primary-base">
-                  {already
-                    ? "Added"
-                    : pickingId === hit.project_id
-                      ? "…"
-                      : "Add"}
-                </span>
-              </button>
-            );
-          })
-        )}
+              />
+            ))}
+          </ul>
+        ) : null}
       </div>
-    </div>
+      {previewModal}
+    </>
   );
 }
