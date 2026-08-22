@@ -215,25 +215,34 @@ jobs:
           MATRIX_ID: ${{ matrix.id }}
         run: |
           set -euo pipefail
-          shopt -s nullglob
-          files=()
+          cd "$GITHUB_WORKSPACE"
+          echo "cwd=$(pwd) matrix=$MATRIX_ID"
+          ls -la src-tauri/target/release/bundle || true
           case "$MATRIX_ID" in
-            macos)
-              files+=(src-tauri/target/release/bundle/macos/*.app.tar.gz)
-              files+=(src-tauri/target/release/bundle/macos/*.app.tar.gz.sig)
-              ;;
-            linux)
-              files+=(src-tauri/target/release/bundle/appimage/*.AppImage.sig)
-              files+=(src-tauri/target/release/bundle/appimage/*.tar.gz)
-              files+=(src-tauri/target/release/bundle/appimage/*.tar.gz.sig)
-              ;;
-            windows)
-              files+=(src-tauri/target/release/bundle/msi/*.msi.sig)
-              files+=(src-tauri/target/release/bundle/nsis/*-setup.exe.sig)
-              ;;
+            macos)  root="src-tauri/target/release/bundle/macos" ;;
+            linux)  root="src-tauri/target/release/bundle" ;;
+            windows) root="src-tauri/target/release/bundle" ;;
+            *) echo "unknown matrix id"; exit 0 ;;
           esac
+          if [ ! -d "$root" ]; then
+            echo "Missing bundle dir: $root"
+            find src-tauri/target/release -maxdepth 4 -type f | head -n 80 || true
+            exit 0
+          fi
+          mapfile -t files < <(
+            find "$root" -type f \( \
+              -name '*.app.tar.gz' -o \
+              -name '*.app.tar.gz.sig' -o \
+              -name '*.AppImage.sig' -o \
+              -name '*.AppImage.tar.gz' -o \
+              -name '*.AppImage.tar.gz.sig' -o \
+              -name '*.msi.sig' -o \
+              -name '*-setup.exe.sig' \
+            \) | sort
+          )
           if [ "${#files[@]}" -eq 0 ]; then
-            echo "No updater sidecars found to upload for $MATRIX_ID"
+            echo "No updater sidecars found under $root"
+            find "$root" -maxdepth 3 -type f | head -n 80 || true
             exit 0
           fi
           echo "Uploading updater sidecars for $TAG:"
