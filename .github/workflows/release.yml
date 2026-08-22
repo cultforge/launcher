@@ -58,7 +58,7 @@ jobs:
               {
                   "id": "macos",
                   "platform": "macos-latest",
-                  "args": "--bundles dmg",
+                  "args": "--bundles app,dmg",
               },
               {
                   "id": "windows",
@@ -139,7 +139,7 @@ jobs:
             // Phase 1–2: scanner + client (broker optional / Windows-only today).
             c.bundle.resources = ["resources/scanner", "resources/client"];
           } else if (id === "macos") {
-            c.bundle.targets = ["dmg"];
+            c.bundle.targets = ["app", "dmg"];
             c.bundle.resources = ["resources/scanner", "resources/client"];
           } else {
             c.bundle.targets = ["msi", "nsis"];
