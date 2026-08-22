@@ -1,0 +1,72 @@
+{
+  "schema": 1,
+  "description": "Maps each CultForge launcher semver to the companion binary release tags it may download or ship. Phases 1–3 fill companions; Phase 0 owns this contract.",
+  "by_launcher": {
+    "2.4.0": {
+      "companions": {
+        "scanner": {
+          "repo": "cultforge/mc-scanner",
+          "status": "active",
+          "tag": "v0.1.0",
+          "min_tag": "v0.1.0",
+          "max_tag": "v0.1.0",
+          "assets": {
+            "windows-x86_64": "scanner.exe",
+            "linux-x86_64": "scanner-linux-x86_64",
+            "macos-arm64": "scanner-macos-arm64",
+            "macos-x86_64": "scanner-macos-x86_64"
+          }
+        },
+        "client": {
+          "repo": null,
+          "status": "pending",
+          "tag": null,
+          "min_tag": null,
+          "max_tag": null,
+          "assets": {}
+        },
+        "ctfgbroker": {
+          "repo": null,
+          "status": "pending",
+          "tag": null,
+          "min_tag": null,
+          "max_tag": null,
+          "assets": {}
+        }
+      }
+    },
+    "2.4.1": {
+      "companions": {
+        "scanner": {
+          "repo": "cultforge/mc-scanner",
+          "status": "active",
+          "tag": "v0.1.0",
+          "min_tag": "v0.1.0",
+          "max_tag": "v0.1.0",
+          "assets": {
+            "windows-x86_64": "scanner.exe",
+            "linux-x86_64": "scanner-linux-x86_64",
+            "macos-arm64": "scanner-macos-arm64",
+            "macos-x86_64": "scanner-macos-x86_64"
+          }
+        },
+        "client": {
+          "repo": null,
+          "status": "pending",
+          "tag": null,
+          "min_tag": null,
+          "max_tag": null,
+          "assets": {}
+        },
+        "ctfgbroker": {
+          "repo": null,
+          "status": "pending",
+          "tag": null,
+          "min_tag": null,
+          "max_tag": null,
+          "assets": {}
+        }
+      }
+    }
+  }
+}
