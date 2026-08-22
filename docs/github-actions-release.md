@@ -23,13 +23,16 @@ gh workflow run "Build CultForge" \
 4. When green, AppImage / `.deb` / `.dmg` appear on the existing
    [v2.4.0](https://github.com/cultforge/launcher/releases/tag/v2.4.0) release.
 
-Unix builds clear `bundle.resources` (no Windows `.exe` sidecars). The shell UI runs;
-local FastAPI needs a `client` binary or `client.py` beside the app until a unix freeze exists.
+Unix builds fetch **scanner** from [mc-scanner](https://github.com/cultforge/mc-scanner)
+via Phase 0 compat (`npm` / `node scripts/fetch-companions.mjs`) and bundle
+`resources/scanner`. The shell UI runs; local FastAPI still needs a Windows
+`client.exe` or later Phase 2 unix `client` until that lands.
 
 ## Tag push
 
 Pushing a `v*` tag also runs the matrix (`linux`, `macos`, `windows`). The Windows job
-fails without `src-tauri/resources/{client,scanner,ctfgbroker}.exe` — prefer
-`workflow_dispatch` with `platforms=linux,macos` unless those binaries are available to CI.
+still needs `src-tauri/resources/{client,ctfgbroker}.exe` (local/cache) plus fetched
+`scanner.exe` — prefer `workflow_dispatch` with `platforms=linux,macos` unless those
+binaries are available to CI.
 
 Workflow file: `.github/workflows/release.yml`

@@ -35,47 +35,88 @@ fn mark_scanner_exit() {
     }
 }
 
+fn scanner_binary_names() -> &'static [&'static str] {
+    #[cfg(windows)]
+    {
+        &["scanner.exe", "scanner"]
+    }
+    #[cfg(not(windows))]
+    {
+        &["scanner", "scanner.exe"]
+    }
+}
+
+fn first_existing(paths: impl IntoIterator<Item = PathBuf>) -> Option<PathBuf> {
+    for candidate in paths {
+        if candidate.exists() {
+            if let Ok(canonical) = candidate.canonicalize() {
+                return Some(canonical);
+            }
+            return Some(candidate);
+        }
+    }
+    None
+}
+
+/// Ensure unix companions are executable; clear macOS quarantine when present.
+fn prepare_companion_binary(path: &Path) -> Result<(), String> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let meta = std::fs::metadata(path)
+            .map_err(|e| format!("scanner metadata {}: {e}", path.display()))?;
+        let mut perms = meta.permissions();
+        let mode = perms.mode();
+        if mode & 0o111 == 0 {
+            perms.set_mode(mode | 0o755);
+            std::fs::set_permissions(path, perms)
+                .map_err(|e| format!("chmod +x {}: {e}", path.display()))?;
+        }
+        // Best-effort; ignore if xattr missing or attribute absent.
+        let _ = Command::new("xattr")
+            .args(["-d", "com.apple.quarantine"])
+            .arg(path)
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status();
+    }
+    let _ = path;
+    Ok(())
+}
+
 fn scanner_exe_path() -> PathBuf {
     if let Ok(p) = std::env::var("CULTFORGE_SCANNER") {
         return PathBuf::from(p);
     }
-    // Installed layout: next to CultForge.exe or resources/
+    let names = scanner_binary_names();
+    // Installed layout: next to CultForge binary or resources/
     if let Ok(exe) = std::env::current_exe() {
         let mut dir = exe.parent().map(|p| p.to_path_buf());
         for _ in 0..4 {
             if let Some(ref d) = dir {
-                for candidate in [d.join("scanner.exe"), d.join("resources").join("scanner.exe")] {
-                    if candidate.exists() {
-                        if let Ok(canonical) = candidate.canonicalize() {
-                            return canonical;
-                        }
-                        return candidate;
-                    }
+                let mut candidates = Vec::new();
+                for name in names {
+                    candidates.push(d.join(name));
+                    candidates.push(d.join("resources").join(name));
+                }
+                if let Some(found) = first_existing(candidates) {
+                    return found;
                 }
                 dir = d.parent().map(|p| p.to_path_buf());
             }
         }
     }
-    // Dev workspace
-    let workspace = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("..")
-        .join("scanner.exe");
-    if let Ok(canonical) = workspace.canonicalize() {
-        return canonical;
+    // Dev workspace + src-tauri/resources (Phase 1 fetch)
+    let manifest = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let mut candidates = Vec::new();
+    for name in names {
+        candidates.push(manifest.join("..").join(name));
+        candidates.push(manifest.join("resources").join(name));
     }
-    if workspace.exists() {
-        return workspace;
+    if let Some(found) = first_existing(candidates) {
+        return found;
     }
-    let res = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("resources")
-        .join("scanner.exe");
-    if let Ok(canonical) = res.canonicalize() {
-        return canonical;
-    }
-    if res.exists() {
-        return res;
-    }
-    PathBuf::from("scanner.exe")
+    PathBuf::from(names[0])
 }
 
 fn fail_all_pending(reason: &str) {
@@ -90,10 +131,11 @@ fn spawn_scanner_into(app: &AppHandle, slot: &mut Option<ScannerProc>) -> Result
     let exe = scanner_exe_path();
     if !exe.exists() {
         return Err(format!(
-            "scanner.exe not found at {}. Set CULTFORGE_SCANNER or place scanner.exe in the workspace root.",
+            "scanner not found at {}. Set CULTFORGE_SCANNER or run `npm run companions:fetch`.",
             exe.display()
         ));
     }
+    prepare_companion_binary(&exe)?;
 
     let workdir = exe
         .parent()
@@ -109,23 +151,23 @@ fn spawn_scanner_into(app: &AppHandle, slot: &mut Option<ScannerProc>) -> Result
     win_proc::apply_no_window(&mut child_cmd);
     let mut child = child_cmd
         .spawn()
-        .map_err(|e| format!("Failed to spawn scanner.exe: {e}"))?;
+        .map_err(|e| format!("Failed to spawn scanner: {e}"))?;
 
     // If it dies instantly, surface that instead of entering a respawn storm.
     // Non-blocking poll (no sleep) — boot must not stall the UI thread.
     if let Ok(Some(status)) = child.try_wait() {
         mark_scanner_exit();
-        return Err(format!("scanner.exe exited immediately ({status})"));
+        return Err(format!("scanner exited immediately ({status})"));
     }
 
     let stdin = child
         .stdin
         .take()
-        .ok_or_else(|| "scanner.exe stdin unavailable".to_string())?;
+        .ok_or_else(|| "scanner stdin unavailable".to_string())?;
     let stdout = child
         .stdout
         .take()
-        .ok_or_else(|| "scanner.exe stdout unavailable".to_string())?;
+        .ok_or_else(|| "scanner stdout unavailable".to_string())?;
 
     let reader_app = app.clone();
     std::thread::spawn(move || {
@@ -164,7 +206,7 @@ fn spawn_scanner_into(app: &AppHandle, slot: &mut Option<ScannerProc>) -> Result
             }
         }
         // Process ended; unblock any waiters and clear the handle.
-        fail_all_pending("scanner.exe exited");
+        fail_all_pending("scanner exited");
         mark_scanner_exit();
         if let Ok(mut slot) = SCANNER.lock() {
             *slot = None;
@@ -172,7 +214,7 @@ fn spawn_scanner_into(app: &AppHandle, slot: &mut Option<ScannerProc>) -> Result
     });
 
     *slot = Some(ScannerProc { child, stdin });
-    eprintln!("[cultforge] Spawned scanner.exe from {}", exe.display());
+    eprintln!("[cultforge] Spawned scanner from {}", exe.display());
     Ok(())
 }
 
@@ -182,12 +224,12 @@ fn ensure_scanner(app: &AppHandle) -> Result<(), String> {
         match proc.child.try_wait() {
             Ok(None) => return Ok(()),
             Ok(Some(status)) => {
-                eprintln!("[cultforge] scanner.exe exited: {status}");
+                eprintln!("[cultforge] scanner exited: {status}");
                 mark_scanner_exit();
                 *slot = None;
             }
             Err(e) => {
-                eprintln!("[cultforge] scanner.exe status error: {e}");
+                eprintln!("[cultforge] scanner status error: {e}");
                 mark_scanner_exit();
                 *slot = None;
             }
@@ -198,7 +240,7 @@ fn ensure_scanner(app: &AppHandle) -> Result<(), String> {
         if let Some(at) = *guard {
             if at.elapsed() < RESPAWN_COOLDOWN {
                 return Err(format!(
-                    "scanner.exe unavailable (cooldown {}s after exit)",
+                    "scanner unavailable (cooldown {}s after exit)",
                     RESPAWN_COOLDOWN.as_secs()
                 ));
             }
@@ -216,6 +258,7 @@ pub fn kill_scanner() {
         }
     }
     win_proc::kill_image("scanner.exe");
+    win_proc::kill_image("scanner");
 }
 
 /// Start scanner once at app boot so Builds rescans reuse a hidden process

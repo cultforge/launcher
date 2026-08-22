@@ -120,6 +120,9 @@ jobs:
       - name: Install frontend dependencies
         run: npm ci
 
+      - name: Fetch companions (Phase 1 scanner)
+        run: node scripts/fetch-companions.mjs --only scanner
+
       - name: Prepare tauri.conf for this OS
         shell: bash
         env:
@@ -133,11 +136,11 @@ jobs:
           const id = process.env.MATRIX_ID;
           if (id === "linux") {
             c.bundle.targets = ["appimage", "deb"];
-            // Windows-only sidecar/install scripts are not in git and not usable on Linux.
-            c.bundle.resources = [];
+            // Phase 1: ship scanner; client/broker still Windows-only.
+            c.bundle.resources = ["resources/scanner"];
           } else if (id === "macos") {
             c.bundle.targets = ["dmg"];
-            c.bundle.resources = [];
+            c.bundle.resources = ["resources/scanner"];
           } else {
             c.bundle.targets = ["msi", "nsis"];
           }
@@ -145,8 +148,18 @@ jobs:
             c.bundle.createUpdaterArtifacts = false;
           }
           fs.writeFileSync(path, JSON.stringify(c, null, 2) + "\n");
-          console.log("Prepared", path, "for", id);
+          console.log("Prepared", path, "for", id, "resources=", c.bundle.resources);
           NODE
+
+      - name: Verify scanner companion
+        shell: bash
+        run: |
+          if [[ "${{ matrix.id }}" == "windows" ]]; then
+            test -f src-tauri/resources/scanner.exe
+          else
+            test -f src-tauri/resources/scanner
+            chmod +x src-tauri/resources/scanner
+          fi
 
       - name: Verify Windows sidecars
         if: matrix.id == 'windows'

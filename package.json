@@ -9,6 +9,7 @@
     "test": "vitest run",
     "icon:generate": "py scripts/generate-app-icon.py",
     "sidecar:freeze": "powershell -ExecutionPolicy Bypass -File scripts/freeze-sidecar.ps1",
+    "companions:fetch": "node scripts/fetch-companions.mjs",
     "release:windows": "powershell -ExecutionPolicy Bypass -File scripts/release-windows.ps1",
     "preview": "vite preview",
     "tauri": "tauri"
@@ -19,6 +20,7 @@
     "@nivo/core": "^0.99.0",
     "@nivo/line": "^0.99.0",
     "@nivo/pie": "^0.99.0",
+    "@nivo/radar": "^0.99.0",
     "@phosphor-icons/react": "^2.1.10",
     "@react-three/drei": "^10.7.7",
     "@react-three/fiber": "^9.6.1",
