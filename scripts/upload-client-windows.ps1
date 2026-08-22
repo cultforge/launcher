@@ -24,13 +24,17 @@ if (-not (Test-Path $Exe)) {
 $ShaPath = Join-Path (Split-Path $Exe) "client.exe.sha256"
 $hash = (Get-FileHash -Algorithm SHA256 -Path $Exe).Hash.ToLowerInvariant()
 Set-Content -Encoding ascii $ShaPath "$hash  client.exe"
-Write-Host "Uploading $Exe → $Repo @ $Tag"
+Write-Host "Uploading $Exe -> $Repo @ $Tag"
 Write-Host "SHA256 $hash"
 
 # Ensure release exists (created by unix CI, or create empty shell).
-$exists = gh release view $Tag --repo $Repo 2>$null
-if ($LASTEXITCODE -ne 0) {
-  Write-Host "Release $Tag missing — creating placeholder for Windows upload…"
+$prevEap = $ErrorActionPreference
+$ErrorActionPreference = "Continue"
+gh release view $Tag --repo $Repo 2>$null | Out-Null
+$viewCode = $LASTEXITCODE
+$ErrorActionPreference = $prevEap
+if ($viewCode -ne 0) {
+  Write-Host "Release $Tag missing - creating placeholder for Windows upload..."
   gh release create $Tag --repo $Repo --title "CultForge client $Tag" --notes "Windows client.exe (manual). Unix assets from Actions."
 }
 
