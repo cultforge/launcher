@@ -34,7 +34,9 @@ describe("companionsCompat (phase 0)", () => {
     );
     expect(
       companionReleaseDownloadUrl("2.4.1", "client", "linux-x86_64"),
-    ).toBeNull();
+    ).toBe(
+      "https://github.com/cultforge/launcher/releases/download/client-v0.1.0/client-linux-x86_64",
+    );
   });
 
   it("builds github download url for windows scanner", () => {

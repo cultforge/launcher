@@ -10,6 +10,7 @@
     "icon:generate": "py scripts/generate-app-icon.py",
     "sidecar:freeze": "powershell -ExecutionPolicy Bypass -File scripts/freeze-sidecar.ps1",
     "companions:fetch": "node scripts/fetch-companions.mjs",
+    "client:upload-windows": "powershell -ExecutionPolicy Bypass -File scripts/upload-client-windows.ps1",
     "release:windows": "powershell -ExecutionPolicy Bypass -File scripts/release-windows.ps1",
     "preview": "vite preview",
     "tauri": "tauri"
