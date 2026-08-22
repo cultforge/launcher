@@ -157,11 +157,13 @@ jobs:
             }
             c.bundle.resources = resources;
           }
-          if (!process.env.TAURI_SIGNING_PRIVATE_KEY) {
-            c.bundle.createUpdaterArtifacts = false;
-          }
+          // Always keep updater archives enabled. The build step supplies
+          // TAURI_SIGNING_PRIVATE_KEY; secrets are masked in logs and must not
+          // flip this off during prepare.
+          c.bundle.createUpdaterArtifacts = true;
+          const keyLen = (process.env.TAURI_SIGNING_PRIVATE_KEY || "").length;
+          console.log("Prepared", path, "for", id, "resources=", c.bundle.resources, "signingKeyLen=", keyLen);
           fs.writeFileSync(path, JSON.stringify(c, null, 2) + "\n");
-          console.log("Prepared", path, "for", id, "resources=", c.bundle.resources);
           NODE
 
       - name: Verify unix companions

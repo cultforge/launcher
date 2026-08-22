@@ -16,12 +16,17 @@ Linux + macOS installers are built on GitHub Actions and attached to the same re
 ```bash
 gh workflow run "Build CultForge" \
   --repo cultforge/launcher \
-  -f tag=v2.4.0 \
+  -f tag=v2.4.1 \
   -f platforms=linux,macos
 ```
 
-4. When green, AppImage / `.deb` / `.dmg` appear on the existing
-   [v2.4.0](https://github.com/cultforge/launcher/releases/tag/v2.4.0) release.
+4. When green, AppImage / `.deb` / `.dmg` **and** updater archives (`.app.tar.gz` / `.sig`)
+   appear on the [v2.4.1](https://github.com/cultforge/launcher/releases/tag/v2.4.1) release.
+5. Refresh the multi-platform updater feed:
+
+```bash
+npm run release:latest-json -- --tag v2.4.1
+```
 
 Unix builds fetch **scanner** + **client** via Phase 0 compat
 (`node scripts/fetch-companions.mjs`) and bundle `resources/scanner` and
