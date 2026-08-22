@@ -12,13 +12,29 @@ describe("companionsCompat (phase 0)", () => {
     const row = getCompatForLauncher("2.4.0");
     expect(row?.companions.scanner.status).toBe("active");
     expect(row?.companions.scanner.tag).toBe("v0.1.0");
-    expect(row?.companions.client.status).toBe("pending");
+    expect(row?.companions.client.status).toBe("active");
+    expect(row?.companions.client.tag).toBe("client-v0.1.0");
+    expect(row?.companions.ctfgbroker.status).toBe("pending");
   });
 
   it("allows only pinned scanner tag", () => {
     expect(isCompanionTagAllowed("2.4.1", "scanner", "v0.1.0")).toBe(true);
     expect(isCompanionTagAllowed("2.4.1", "scanner", "v9.9.9")).toBe(false);
-    expect(isCompanionFetchAllowed("2.4.1", "client")).toBe(false);
+  });
+
+  it("allows pinned client tag on windows compat", () => {
+    expect(isCompanionFetchAllowed("2.4.1", "client")).toBe(true);
+    expect(isCompanionTagAllowed("2.4.1", "client", "client-v0.1.0")).toBe(
+      true,
+    );
+    expect(
+      companionReleaseDownloadUrl("2.4.1", "client", "windows-x86_64"),
+    ).toBe(
+      "https://github.com/cultforge/launcher/releases/download/client-v0.1.0/client.exe",
+    );
+    expect(
+      companionReleaseDownloadUrl("2.4.1", "client", "linux-x86_64"),
+    ).toBeNull();
   });
 
   it("builds github download url for windows scanner", () => {

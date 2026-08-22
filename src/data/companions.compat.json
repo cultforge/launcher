@@ -18,12 +18,14 @@
           }
         },
         "client": {
-          "repo": null,
-          "status": "pending",
-          "tag": null,
-          "min_tag": null,
-          "max_tag": null,
-          "assets": {}
+          "repo": "cultforge/launcher",
+          "status": "active",
+          "tag": "client-v0.1.0",
+          "min_tag": "client-v0.1.0",
+          "max_tag": "client-v0.1.0",
+          "assets": {
+            "windows-x86_64": "client.exe"
+          }
         },
         "ctfgbroker": {
           "repo": null,
@@ -51,12 +53,14 @@
           }
         },
         "client": {
-          "repo": null,
-          "status": "pending",
-          "tag": null,
-          "min_tag": null,
-          "max_tag": null,
-          "assets": {}
+          "repo": "cultforge/launcher",
+          "status": "active",
+          "tag": "client-v0.1.0",
+          "min_tag": "client-v0.1.0",
+          "max_tag": "client-v0.1.0",
+          "assets": {
+            "windows-x86_64": "client.exe"
+          }
         },
         "ctfgbroker": {
           "repo": null,

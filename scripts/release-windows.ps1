@@ -60,8 +60,8 @@ Assert-Contains (Join-Path $Root "src\manifest.tsx") "APP_VERSION = `"$Display`"
 
 Ensure-UpdaterSigning
 
-Write-Host "0/5 companions:fetch (scanner)..."
-& node (Join-Path $Root "scripts\fetch-companions.mjs") --only scanner
+Write-Host "0/5 companions:fetch (scanner + client)..."
+& node (Join-Path $Root "scripts\fetch-companions.mjs")
 if ($LASTEXITCODE -ne 0) { throw "companions:fetch failed" }
 
 Write-Host "1/5 sidecar:freeze..."

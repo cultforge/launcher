@@ -166,7 +166,10 @@ async function main() {
     }
     const asset = entry.assets?.[platform];
     if (!asset) {
-      throw new Error(`${id} has no asset for platform ${platform}`);
+      console.log(
+        `  skip ${id} (no asset for platform ${platform} — Phase 2+ partial OK)`,
+      );
+      continue;
     }
     const url = `https://github.com/${entry.repo}/releases/download/${entry.tag}/${asset}`;
     const name = installName(id, asset);

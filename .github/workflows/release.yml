@@ -120,8 +120,8 @@ jobs:
       - name: Install frontend dependencies
         run: npm ci
 
-      - name: Fetch companions (Phase 1 scanner)
-        run: node scripts/fetch-companions.mjs --only scanner
+      - name: Fetch companions (Phase 1–2)
+        run: node scripts/fetch-companions.mjs
 
       - name: Prepare tauri.conf for this OS
         shell: bash

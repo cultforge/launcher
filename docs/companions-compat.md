@@ -1,4 +1,4 @@
-# Companion compatibility (Phase 0 + 1)
+# Companion compatibility (Phase 0–2)
 
 Contract that maps **launcher semver → allowed companion binary releases**.
 
@@ -8,38 +8,44 @@ Fetch script: [`scripts/fetch-companions.mjs`](../scripts/fetch-companions.mjs)
 
 ## Why
 
-Companions (`scanner`, `client`, `ctfgbroker`) live in separate repos. The launcher must only **download / ship** release tags that this file allows for that launcher version.
+Companions (`scanner`, `client`, `ctfgbroker`) live as separate release artifacts. The launcher must only **download / ship** release tags that this file allows for that launcher version.
 
 ## Phases
 
 | Phase | Companion | Status in 2.4.0 / 2.4.1 |
 |-------|-----------|-------------------------|
 | 0 | (this file) | shipped |
-| 1 | `scanner` (`cultforge/mc-scanner`) | `active` @ `v0.1.0` — fetch + bundle |
-| 2 | `client` | `pending` |
+| 1 | `scanner` (`cultforge/mc-scanner`) | `active` @ `v0.1.0` |
+| 2 | `client` (`cultforge/launcher` tag `client-v*`) | `active` @ `client-v0.1.0` (Windows) |
 | 3 | `ctfgbroker` | `pending` |
 
-## Fetch (Phase 1)
+## Fetch
 
 ```bash
 npm run companions:fetch
 # or
 node scripts/fetch-companions.mjs --only scanner
+node scripts/fetch-companions.mjs --only client
 ```
 
-Downloads the compat-allowed asset for the host OS into `src-tauri/resources/` (`scanner.exe` or `scanner`) and copies it to the workspace root for `tauri dev`.
+Skips companions with no asset for the current OS (e.g. client on Linux until Phase 2 expands).
+
+## Build client (CI + local)
+
+| Path | Command |
+|------|---------|
+| **GitHub Actions** | Workflow **Build client (Nuitka)** → publishes `client-v0.1.0` with `client.exe` |
+| **Local Windows** | `npm run sidecar:freeze` (same Nuitka flags) |
+
+```bash
+gh workflow run "Build client (Nuitka)" --repo cultforge/launcher -f tag=client-v0.1.0
+```
 
 Wired into:
 
-- `scripts/release-windows.ps1` (before sidecar freeze)
-- `.github/workflows/release.yml` (before Tauri build; linux/macos bundle `resources/scanner`)
-
-## Rules for fetch / CI
-
-1. Load compat for `package.json` / app version.
-2. Skip any companion with `status != "active"` or null `tag` / `repo`.
-3. Reject tags outside `min_tag`…`max_tag` (and prefer exact `tag`).
-4. Download only the asset name listed for the build platform.
+- `scripts/release-windows.ps1` (companions fetch before freeze)
+- `.github/workflows/release.yml` (scanner on all OS; client when Windows asset exists)
+- `.github/workflows/build-client.yml` (sidecar-only release)
 
 ## Runtime (scanner)
 
@@ -47,4 +53,4 @@ Wired into:
 
 ## Live feed (optional later)
 
-A future `GET https://api.cultforge.com/v1/launcher/companions/compat.json` may mirror this document. Runtime must still refuse tags not allowed for the **running** launcher version.
+A future `GET https://api.cultforge.com/v1/launcher/companions/compat.json` may mirror this document.

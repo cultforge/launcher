@@ -1,0 +1,146 @@
+name: Build client (Nuitka)
+
+# Phase 2 — freeze client.py → client.exe and publish as a companion release.
+# Tags: client-v* (e.g. client-v0.1.0). Does not publish a full launcher install.
+#
+# Local Windows freeze remains: npm run sidecar:freeze
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag (client-v0.1.0)"
+        required: true
+        default: "client-v0.1.0"
+  push:
+    tags:
+      - "client-v*"
+
+permissions:
+  contents: write
+
+jobs:
+  freeze-windows:
+    runs-on: windows-latest
+    timeout-minutes: 120
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: requirements.txt
+
+      - name: Resolve release tag
+        id: meta
+        shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          INPUT_TAG: ${{ github.event.inputs.tag }}
+          REF_NAME: ${{ github.ref_name }}
+        run: |
+          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+            TAG="$INPUT_TAG"
+          else
+            TAG="$REF_NAME"
+          fi
+          case "$TAG" in
+            client-v*) ;;
+            *) echo "Tag must look like client-v0.1.0 (got: $TAG)"; exit 1 ;;
+          esac
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "Publishing companion tag: $TAG"
+
+      - name: Install Nuitka deps
+        shell: pwsh
+        run: |
+          python -m pip install -U pip wheel
+          python -m pip install nuitka ordered-set zstandard
+          python -m pip install -r requirements.txt sniffio
+
+      - name: Freeze client.exe (Nuitka)
+        shell: pwsh
+        run: |
+          $OutDir = "dist-sidecar"
+          New-Item -ItemType Directory -Force -Path $OutDir | Out-Null
+          $Icon = (Resolve-Path "src-tauri/icons/icon.ico").Path
+          $Log = Join-Path $OutDir "nuitka-ci-freeze.log"
+          $args = @(
+            "-m", "nuitka",
+            "--msvc=latest",
+            "--lto=yes",
+            "--standalone",
+            "--onefile",
+            "--windows-console-mode=disable",
+            "--windows-icon-from-ico=$Icon",
+            "--include-package=ctfgsdk",
+            "--include-package=uvicorn",
+            "--include-package=fastapi",
+            "--include-package=starlette",
+            "--include-package=pydantic",
+            "--include-package=httpx",
+            "--include-package=anyio",
+            "--include-package=websockets",
+            "--include-module=httptools",
+            "--include-module=h11",
+            "--include-module=sniffio",
+            "--nofollow-import-to=tkinter",
+            "--nofollow-import-to=unittest",
+            "--assume-yes-for-downloads",
+            "--output-filename=client.exe",
+            "--output-dir=$OutDir",
+            "--remove-output",
+            "client.py"
+          )
+          Write-Host "Nuitka → dist-sidecar/client.exe"
+          & python @args 2>&1 | Tee-Object -FilePath $Log
+          if ($LASTEXITCODE -ne 0) {
+            Get-Content $Log -Tail 60
+            throw "Nuitka failed ($LASTEXITCODE)"
+          }
+          if (-not (Test-Path "dist-sidecar/client.exe")) {
+            throw "dist-sidecar/client.exe missing after freeze"
+          }
+          Get-Item "dist-sidecar/client.exe" | Format-List Name, Length, LastWriteTime
+
+      - name: SHA256
+        shell: pwsh
+        run: |
+          $hash = (Get-FileHash -Algorithm SHA256 "dist-sidecar/client.exe").Hash.ToLowerInvariant()
+          Set-Content -Encoding ascii "dist-sidecar/client.exe.sha256" "$hash  client.exe"
+          Write-Host "SHA256 $hash"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: client-windows-x86_64
+          path: |
+            dist-sidecar/client.exe
+            dist-sidecar/client.exe.sha256
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.meta.outputs.tag }}
+          name: CultForge client ${{ steps.meta.outputs.tag }}
+          body: |
+            Windows Nuitka sidecar (`client.exe`) for CultForge launcher.
+
+            Phase 2 companion binary — pin this tag in `src/data/companions.compat.json`.
+
+            ```
+            npm run companions:fetch -- --only client
+            ```
+          files: |
+            dist-sidecar/client.exe
+            dist-sidecar/client.exe.sha256
+          fail_on_unmatched_files: true
+          generate_release_notes: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
