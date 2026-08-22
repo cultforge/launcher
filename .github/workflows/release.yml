@@ -191,60 +191,62 @@ jobs:
             Write-Warning "ctfgbroker.exe missing — continuing without broker"
           }
 
-      - name: Build Tauri
-        uses: tauri-apps/tauri-action@v0
+      - name: Build Tauri and upload installers + updater sidecars
+        shell: bash
         env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
           TAURI_WIX_SKIP_MSI_VALIDATION: "true"
-        with:
-          tagName: ${{ needs.select.outputs.tag }}
-          releaseName: "CultForge ${{ needs.select.outputs.tag }}"
-          releaseBody: "CultForge Launcher ${{ needs.select.outputs.tag }} (Windows + Linux + macOS)."
-          releaseDraft: false
-          prerelease: false
-          args: ${{ matrix.args }}
-
-      # tauri-action uploads installers but often skips updater archives / .sig files.
-      - name: Upload updater archives and signatures
-        shell: bash
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAG: ${{ needs.select.outputs.tag }}
           MATRIX_ID: ${{ matrix.id }}
+          MATRIX_ARGS: ${{ matrix.args }}
         run: |
           set -euo pipefail
           cd "$GITHUB_WORKSPACE"
-          echo "cwd=$(pwd) matrix=$MATRIX_ID"
-          ls -la src-tauri/target/release/bundle || true
-          case "$MATRIX_ID" in
-            macos)  root="src-tauri/target/release/bundle/macos" ;;
-            linux)  root="src-tauri/target/release/bundle" ;;
-            windows) root="src-tauri/target/release/bundle" ;;
-            *) echo "unknown matrix id"; exit 0 ;;
-          esac
-          if [ ! -d "$root" ]; then
-            echo "Missing bundle dir: $root"
-            find src-tauri/target/release -maxdepth 4 -type f | head -n 80 || true
-            exit 0
+          echo "Building CultForge for $MATRIX_ID ($MATRIX_ARGS)"
+          npm run tauri -- build $MATRIX_ARGS
+
+          # Collect installers + updater archives/signatures before anything cleans them.
+          bundle="src-tauri/target/release/bundle"
+          files="$(mktemp)"
+          find "$bundle" -type f \( \
+            -name '*.dmg' -o \
+            -name '*.AppImage' -o \
+            -name '*.deb' -o \
+            -name '*.msi' -o \
+            -name '*-setup.exe' -o \
+            -name '*.app.tar.gz' -o \
+            -name '*.app.tar.gz.sig' -o \
+            -name '*.AppImage.sig' -o \
+            -name '*.AppImage.tar.gz' -o \
+            -name '*.AppImage.tar.gz.sig' -o \
+            -name '*.msi.sig' -o \
+            -name '*-setup.exe.sig' -o \
+            -name '*.deb.sig' \
+          \) ! -path '*/AppDir/*' ! -path '*/data/*' ! -name 'control.tar.gz' ! -name 'data.tar.gz' \
+            | sort > "$files"
+
+          echo "Release assets to upload for $TAG:"
+          cat "$files"
+          if [ ! -s "$files" ]; then
+            echo "No release assets found under $bundle"
+            exit 1
           fi
-          mapfile -t files < <(
-            find "$root" -type f \( \
-              -name '*.app.tar.gz' -o \
-              -name '*.app.tar.gz.sig' -o \
-              -name '*.AppImage.sig' -o \
-              -name '*.AppImage.tar.gz' -o \
-              -name '*.AppImage.tar.gz.sig' -o \
-              -name '*.msi.sig' -o \
-              -name '*-setup.exe.sig' \
-            \) | sort
-          )
-          if [ "${#files[@]}" -eq 0 ]; then
-            echo "No updater sidecars found under $root"
-            find "$root" -maxdepth 3 -type f | head -n 80 || true
-            exit 0
-          fi
-          echo "Uploading updater sidecars for $TAG:"
-          printf '  %s\n' "${files[@]}"
-          gh release upload "$TAG" "${files[@]}" --repo "$GITHUB_REPOSITORY" --clobber
+
+          # Prefer versioned CultForge_* names over lowercase cult-forge_* duplicates.
+          filtered="$(mktemp)"
+          while IFS= read -r f; do
+            base="$(basename "$f")"
+            case "$base" in
+              cult-forge_*) continue ;;
+            esac
+            printf '%s\n' "$f" >> "$filtered"
+          done < "$files"
+
+          echo "Uploading:"
+          cat "$filtered"
+          # shellcheck disable=SC2046
+          gh release upload "$TAG" $(cat "$filtered") --repo "$GITHUB_REPOSITORY" --clobber
+          rm -f "$files" "$filtered"
