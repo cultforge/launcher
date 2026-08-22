@@ -97,7 +97,9 @@ function installName(companionId, assetName) {
 
 function tagAllowed(entry, tag) {
   const want = String(tag).trim();
-  if (!want || entry.status !== "active") return false;
+  if (!want || (entry.status !== "active" && entry.status !== "optional")) {
+    return false;
+  }
   if (entry.tag && normalizeSemver(entry.tag) === normalizeSemver(want)) {
     return true;
   }
@@ -145,7 +147,11 @@ async function main() {
 
   const want = args.only
     ? [args.only]
-    : COMPANION_IDS.filter((id) => row.companions[id]?.status === "active");
+    : COMPANION_IDS.filter(
+        (id) =>
+          row.companions[id]?.status === "active" ||
+          row.companions[id]?.status === "optional",
+      );
 
   await mkdir(RES_DIR, { recursive: true });
   console.log(`Companions fetch · launcher=${launcher} · platform=${platform}`);
@@ -154,14 +160,22 @@ async function main() {
   for (const id of want) {
     const entry = row.companions[id];
     if (!entry) throw new Error(`Unknown companion id: ${id}`);
-    if (entry.status !== "active") {
+    if (entry.status !== "active" && entry.status !== "optional") {
       console.log(`  skip ${id} (status=${entry.status})`);
       continue;
     }
     if (!entry.repo || !entry.tag) {
+      if (entry.status === "optional") {
+        console.log(`  soft-skip ${id} (optional, missing repo/tag)`);
+        continue;
+      }
       throw new Error(`${id} is active but missing repo/tag in compat`);
     }
     if (!tagAllowed(entry, entry.tag)) {
+      if (entry.status === "optional") {
+        console.log(`  soft-skip ${id} (optional, tag not allowed)`);
+        continue;
+      }
       throw new Error(`${id} tag ${entry.tag} not allowed by compat for ${launcher}`);
     }
     const asset = entry.assets?.[platform];
@@ -175,7 +189,17 @@ async function main() {
     const name = installName(id, asset);
     const dest = path.join(RES_DIR, name);
     console.log(`  ${id} ← ${url}`);
-    await download(url, dest);
+    try {
+      await download(url, dest);
+    } catch (err) {
+      if (entry.status === "optional") {
+        console.log(
+          `  soft-skip ${id} (optional download failed: ${err instanceof Error ? err.message : err})`,
+        );
+        continue;
+      }
+      throw err;
+    }
     if (process.platform !== "win32") {
       await chmod(dest, 0o755);
     }

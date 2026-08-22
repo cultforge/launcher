@@ -32,7 +32,7 @@
         },
         "ctfgbroker": {
           "repo": "cultforge/launcher",
-          "status": "active",
+          "status": "optional",
           "tag": "broker-v0.1.0",
           "min_tag": "broker-v0.1.0",
           "max_tag": "broker-v0.1.0",
@@ -72,7 +72,7 @@
         },
         "ctfgbroker": {
           "repo": "cultforge/launcher",
-          "status": "active",
+          "status": "optional",
           "tag": "broker-v0.1.0",
           "min_tag": "broker-v0.1.0",
           "max_tag": "broker-v0.1.0",

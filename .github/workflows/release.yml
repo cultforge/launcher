@@ -136,13 +136,26 @@ jobs:
           const id = process.env.MATRIX_ID;
           if (id === "linux") {
             c.bundle.targets = ["appimage", "deb"];
-            // Phase 1–2: scanner + client (broker still Windows-only).
+            // Phase 1–2: scanner + client (broker optional / Windows-only today).
             c.bundle.resources = ["resources/scanner", "resources/client"];
           } else if (id === "macos") {
             c.bundle.targets = ["dmg"];
             c.bundle.resources = ["resources/scanner", "resources/client"];
           } else {
             c.bundle.targets = ["msi", "nsis"];
+            const resources = [
+              "installer-scripts/pre-install.ps1",
+              "installer-scripts/post-install.ps1",
+              "installer-scripts/pre-uninstall.ps1",
+              "resources/client.exe",
+              "resources/scanner.exe",
+            ];
+            if (fs.existsSync("src-tauri/resources/ctfgbroker.exe")) {
+              resources.push("resources/ctfgbroker.exe");
+            } else {
+              console.log("ctfgbroker.exe missing — soft-skip (optional companion)");
+            }
+            c.bundle.resources = resources;
           }
           if (!process.env.TAURI_SIGNING_PRIVATE_KEY) {
             c.bundle.createUpdaterArtifacts = false;
@@ -168,9 +181,14 @@ jobs:
         if: matrix.id == 'windows'
         shell: pwsh
         run: |
-          foreach ($n in @("client.exe","scanner.exe","ctfgbroker.exe")) {
+          foreach ($n in @("client.exe","scanner.exe")) {
             $p = "src-tauri/resources/$n"
             if (-not (Test-Path $p)) { throw "Missing $p" }
+          }
+          if (Test-Path "src-tauri/resources/ctfgbroker.exe") {
+            Write-Host "ctfgbroker.exe present (optional companion)"
+          } else {
+            Write-Warning "ctfgbroker.exe missing — continuing without broker"
           }
 
       - name: Build Tauri
@@ -187,3 +205,37 @@ jobs:
           releaseDraft: false
           prerelease: false
           args: ${{ matrix.args }}
+
+      # tauri-action uploads installers but often skips updater archives / .sig files.
+      - name: Upload updater archives and signatures
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ needs.select.outputs.tag }}
+          MATRIX_ID: ${{ matrix.id }}
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          files=()
+          case "$MATRIX_ID" in
+            macos)
+              files+=(src-tauri/target/release/bundle/macos/*.app.tar.gz)
+              files+=(src-tauri/target/release/bundle/macos/*.app.tar.gz.sig)
+              ;;
+            linux)
+              files+=(src-tauri/target/release/bundle/appimage/*.AppImage.sig)
+              files+=(src-tauri/target/release/bundle/appimage/*.tar.gz)
+              files+=(src-tauri/target/release/bundle/appimage/*.tar.gz.sig)
+              ;;
+            windows)
+              files+=(src-tauri/target/release/bundle/msi/*.msi.sig)
+              files+=(src-tauri/target/release/bundle/nsis/*-setup.exe.sig)
+              ;;
+          esac
+          if [ "${#files[@]}" -eq 0 ]; then
+            echo "No updater sidecars found to upload for $MATRIX_ID"
+            exit 0
+          fi
+          echo "Uploading updater sidecars for $TAG:"
+          printf '  %s\n' "${files[@]}"
+          gh release upload "$TAG" "${files[@]}" --repo "$GITHUB_REPOSITORY" --clobber

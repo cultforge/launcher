@@ -32,6 +32,10 @@ function Ensure-UpdaterSigning {
     # Tauri bundler reliably reads TAURI_SIGNING_PRIVATE_KEY (contents), not always PATH.
     $env:TAURI_SIGNING_PRIVATE_KEY = [System.IO.File]::ReadAllText($keyPath).Trim()
     Remove-Item Env:TAURI_SIGNING_PRIVATE_KEY_PATH -ErrorAction SilentlyContinue
+    # Avoid interactive "Decrypting updater signing key" hang when the key has no password.
+    if (-not $env:TAURI_SIGNING_PRIVATE_KEY_PASSWORD) {
+      $env:TAURI_SIGNING_PRIVATE_KEY_PASSWORD = ""
+    }
     Write-Host "Loaded updater signing key from: $keyPath"
     return
   }

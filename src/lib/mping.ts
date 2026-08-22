@@ -35,7 +35,12 @@ export async function writeMpingServers(servers: string[]): Promise<void> {
 
 export async function ensureMpingBroker(): Promise<string> {
   if (!isTauri()) return "skipped";
-  return invoke<string>("ensure_mping_broker");
+  try {
+    return await invoke<string>("ensure_mping_broker");
+  } catch {
+    // Soft-optional companion — never block launcher UX.
+    return "unavailable";
+  }
 }
 
 /** Normalize host:port for broker watch list. */

@@ -14,7 +14,7 @@ describe("companionsCompat (phase 0)", () => {
     expect(row?.companions.scanner.tag).toBe("v0.1.0");
     expect(row?.companions.client.status).toBe("active");
     expect(row?.companions.client.tag).toBe("client-v0.1.0");
-    expect(row?.companions.ctfgbroker.status).toBe("active");
+    expect(row?.companions.ctfgbroker.status).toBe("optional");
     expect(row?.companions.ctfgbroker.tag).toBe("broker-v0.1.0");
   });
 
@@ -40,13 +40,16 @@ describe("companionsCompat (phase 0)", () => {
     );
   });
 
-  it("allows pinned broker tag on windows compat", () => {
+  it("allows optional broker fetch when windows asset exists", () => {
     expect(isCompanionFetchAllowed("2.4.1", "ctfgbroker")).toBe(true);
     expect(
       companionReleaseDownloadUrl("2.4.1", "ctfgbroker", "windows-x86_64"),
     ).toBe(
       "https://github.com/cultforge/launcher/releases/download/broker-v0.1.0/ctfgbroker.exe",
     );
+    expect(
+      companionReleaseDownloadUrl("2.4.1", "ctfgbroker", "linux-x86_64"),
+    ).toBeNull();
   });
 
   it("builds github download url for windows scanner", () => {

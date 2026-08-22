@@ -13,6 +13,7 @@
     "client:upload-windows": "powershell -ExecutionPolicy Bypass -File scripts/upload-client-windows.ps1",
     "broker:upload-windows": "powershell -ExecutionPolicy Bypass -File scripts/upload-broker-windows.ps1",
     "release:windows": "powershell -ExecutionPolicy Bypass -File scripts/release-windows.ps1",
+    "release:latest-json": "node scripts/publish-latest-json.mjs",
     "preview": "vite preview",
     "tauri": "tauri"
   },

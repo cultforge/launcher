@@ -15,7 +15,8 @@ export type CompanionPlatform =
   | "macos-arm64"
   | "macos-x86_64";
 
-export type CompanionStatus = "active" | "pending" | "disabled";
+/** `optional` = fetch/use when present; never fail builds or launcher boot. */
+export type CompanionStatus = "active" | "optional" | "pending" | "disabled";
 
 export type CompanionCompatEntry = {
   repo: string | null;
@@ -107,14 +108,18 @@ export function getCompanionEntry(
   return row?.companions[companion] ?? null;
 }
 
-/** True when this companion is active and has a pinned tag for the launcher. */
+function isFetchableStatus(status: CompanionStatus): boolean {
+  return status === "active" || status === "optional";
+}
+
+/** True when this companion is active/optional and has a pinned tag for the launcher. */
 export function isCompanionFetchAllowed(
   launcherVersion: string,
   companion: CompanionId,
   doc: CompanionsCompatDocument = COMPANIONS_COMPAT,
 ): boolean {
   const entry = getCompanionEntry(launcherVersion, companion, doc);
-  if (!entry || entry.status !== "active") return false;
+  if (!entry || !isFetchableStatus(entry.status)) return false;
   if (!entry.repo || !entry.tag) return false;
   return true;
 }
@@ -130,7 +135,7 @@ export function isCompanionTagAllowed(
   doc: CompanionsCompatDocument = COMPANIONS_COMPAT,
 ): boolean {
   const entry = getCompanionEntry(launcherVersion, companion, doc);
-  if (!entry || entry.status !== "active") return false;
+  if (!entry || !isFetchableStatus(entry.status)) return false;
   const want = tag.trim();
   if (!want) return false;
 
@@ -159,7 +164,7 @@ export function resolveCompanionAssetName(
   doc: CompanionsCompatDocument = COMPANIONS_COMPAT,
 ): string | null {
   const entry = getCompanionEntry(launcherVersion, companion, doc);
-  if (!entry || entry.status !== "active") return null;
+  if (!entry || !isFetchableStatus(entry.status)) return null;
   return entry.assets[platform] ?? null;
 }
 

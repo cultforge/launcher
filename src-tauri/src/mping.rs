@@ -143,6 +143,7 @@ pub fn read_mping_servers() -> Result<Vec<String>, String> {
 }
 
 /// Spawn ctfgbroker if present (idempotent).
+/// Soft-optional: missing broker is `Ok("unavailable")`, never a hard error.
 #[tauri::command]
 pub fn ensure_mping_broker() -> Result<String, String> {
     {
@@ -160,11 +161,13 @@ pub fn ensure_mping_broker() -> Result<String, String> {
         }
     }
 
-    let broker = look_for_broker().ok_or_else(|| {
-        "ctfgbroker not found. Run `npm run companions:fetch` or place it next to CultForge."
-            .to_string()
-    })?;
-    prepare_broker_binary(&broker)?;
+    let Some(broker) = look_for_broker() else {
+        return Ok("unavailable".into());
+    };
+    if let Err(e) = prepare_broker_binary(&broker) {
+        eprintln!("[cultforge] mping broker prepare: {e}");
+        return Ok("unavailable".into());
+    }
 
     // Ensure mping.json exists so broker does not exit 0 immediately.
     let path = mping_json_path();
@@ -185,16 +188,21 @@ pub fn ensure_mping_broker() -> Result<String, String> {
 
     win_proc::apply_no_window(&mut cmd);
 
-    let child = cmd
-        .spawn()
-        .map_err(|e| format!("Failed to spawn ctfgbroker: {e}"))?;
-    *MPING_CHILD.lock().unwrap() = Some(child);
-    Ok(format!(
-        "started {} (home {}, port {})",
-        broker.display(),
-        home.display(),
-        port
-    ))
+    match cmd.spawn() {
+        Ok(child) => {
+            *MPING_CHILD.lock().unwrap() = Some(child);
+            Ok(format!(
+                "started {} (home {}, port {})",
+                broker.display(),
+                home.display(),
+                port
+            ))
+        }
+        Err(e) => {
+            eprintln!("[cultforge] mping broker spawn: {e}");
+            Ok("unavailable".into())
+        }
+    }
 }
 
 pub fn kill_mping_broker() {
