@@ -3,6 +3,7 @@
 use crate::downloads::plan::{DownloadProgressEvent, ProgressThrottle};
 use crate::java_runtime::{ensure_java, parse_java_major_hint};
 use crate::mojang_install::{install_mojang_version, MojangInstallResult};
+use crate::minecraft_bootstrap::ensure_minecraft_root;
 use crate::scanner::default_minecraft_root;
 use futures_util::StreamExt;
 use serde::Serialize;
@@ -633,6 +634,7 @@ async fn run_installer(
     installer: &Path,
     minecraft_root: &Path,
 ) -> Result<String, String> {
+    ensure_minecraft_root(minecraft_root)?;
     let java = java.to_path_buf();
     let installer = installer.to_path_buf();
     let root = minecraft_root.to_path_buf();
@@ -765,6 +767,7 @@ pub async fn install_loader_build(
         .filter(|s| !s.is_empty())
         .map(PathBuf::from)
         .unwrap_or_else(default_minecraft_root);
+    ensure_minecraft_root(&root)?;
     let job_id = format!("loader-{mc}-{loader}-{loader_version}");
     let display = format!("{} {} · MC {mc}", loader_label(loader), loader_version);
     let gate = std::sync::Arc::new(ProgressThrottle::new(150));

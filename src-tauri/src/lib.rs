@@ -14,6 +14,7 @@ mod launch;
 mod java_runtime;
 mod mojang_install;
 mod loader_install;
+mod minecraft_bootstrap;
 mod minecraft_options;
 mod scanner;
 mod build_meta;

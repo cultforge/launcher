@@ -489,9 +489,7 @@ fn load_version_profile(minecraft_root: &Path, version_id: &str) -> Result<Versi
     }
     // Always use the requested version id (leaf), even if merge missed it.
     profile.id = version_id.to_string();
-    if profile.jar_id.is_empty() {
-        profile.jar_id = profile.id.clone();
-    }
+    profile.jar_id = version_id.to_string();
     if profile.main_class.is_empty() {
         return Err("Version profile is missing mainClass".into());
     }
@@ -499,6 +497,29 @@ fn load_version_profile(minecraft_root: &Path, version_id: &str) -> Result<Versi
         profile.asset_index = "legacy".into();
     }
     Ok(profile)
+}
+
+fn arg_value_is(item: &Value, needle: &str) -> bool {
+    if item.as_str() == Some(needle) {
+        return true;
+    }
+    if let Some(obj) = item.as_object() {
+        if let Some(vals) = obj.get("values").and_then(|v| v.as_array()) {
+            return vals.iter().any(|v| v.as_str() == Some(needle));
+        }
+    }
+    false
+}
+
+/// Forge 1.18+ uses `BootstrapLauncher` with `-p` module path, not a flat `-cp` classpath.
+fn uses_module_path_launch(profile: &VersionProfile) -> bool {
+    profile.main_class.contains("BootstrapLauncher")
+        || profile.arguments_jvm.iter().any(|item| arg_value_is(item, "-p"))
+}
+
+fn is_forge_like_version(version_id: &str) -> bool {
+    let lower = version_id.to_ascii_lowercase();
+    lower.contains("forge") || lower.contains("neoforge")
 }
 
 fn leaf_jar_path(minecraft_root: &Path, version_id: &str) -> PathBuf {
@@ -1036,6 +1057,7 @@ pub fn launch_minecraft(app: AppHandle, args: LaunchMinecraftArgs) -> Result<Lau
     crate::windows_game::register_exe_as_game(&java.path);
 
     let profile = load_version_profile(&minecraft_root, version_id)?;
+    let module_launch = uses_module_path_launch(&profile);
     let client_jar = minecraft_root
         .join("versions")
         .join(&profile.jar_id)
@@ -1044,9 +1066,11 @@ pub fn launch_minecraft(app: AppHandle, args: LaunchMinecraftArgs) -> Result<Lau
     let mut classpath: Vec<String> = Vec::new();
     let mut native_jars: Vec<PathBuf> = Vec::new();
     for lib in &profile.libraries {
-        if let Some(p) = library_path_from_entry(&minecraft_root, lib) {
-            if p.is_file() {
-                classpath.push(p.to_string_lossy().to_string());
+        if !module_launch {
+            if let Some(p) = library_path_from_entry(&minecraft_root, lib) {
+                if p.is_file() {
+                    classpath.push(p.to_string_lossy().to_string());
+                }
             }
         }
         if let Some(np) = native_jar_path(&minecraft_root, lib) {
@@ -1064,15 +1088,23 @@ pub fn launch_minecraft(app: AppHandle, args: LaunchMinecraftArgs) -> Result<Lau
     let leaf_jar = leaf_jar_path(&minecraft_root, version_id);
     let game_jar = if leaf_jar.is_file() {
         leaf_jar
+    } else if is_forge_like_version(version_id) {
+        return Err(format!(
+            "Missing Forge client jar at {}. Reinstall {} from CultForge (Transfer Center → Forge).",
+            leaf_jar.display(),
+            version_id
+        ));
     } else if client_jar.is_file() {
         client_jar.clone()
     } else {
         return Err(format!(
-            "Missing client jar for {}. Play this version once in the official launcher so jars/libraries are installed.",
+            "Missing client jar for {}. Install this version with CultForge or the official launcher.",
             profile.jar_id
         ));
     };
-    classpath.push(game_jar.to_string_lossy().to_string());
+    if !module_launch {
+        classpath.push(game_jar.to_string_lossy().to_string());
+    }
 
     let natives_dir = game_dir.join("natives");
     extract_natives(&natives_dir, &native_jars)?;
@@ -1137,12 +1169,13 @@ pub fn launch_minecraft(app: AppHandle, args: LaunchMinecraftArgs) -> Result<Lau
     if !profile.arguments_jvm.is_empty() {
         jvm_args.extend(flatten_args(&profile.arguments_jvm, &vars, custom_res));
     } else {
-        // Legacy classpath / natives already covered above.
+        // Legacy pre-module-path launchers (vanilla / old Fabric).
         jvm_args.push("-cp".into());
         jvm_args.push(classpath_joined.clone());
     }
-    // Ensure -cp present
-    if !jvm_args.iter().any(|a| a == "-cp" || a == "-classpath") {
+    // Forge BootstrapLauncher uses `-p` module path only; a duplicate `-cp` that
+    // includes the vanilla 1.20.1.jar causes `_1._20._1` vs `minecraft` module conflicts.
+    if !module_launch && !jvm_args.iter().any(|a| a == "-cp" || a == "-classpath") {
         jvm_args.push("-cp".into());
         jvm_args.push(classpath_joined.clone());
     }
@@ -1335,5 +1368,23 @@ mod tests {
             "classpath_separator must be expanded"
         );
         assert!(joined.contains("-p"), "Forge module path -p required");
+        assert!(uses_module_path_launch(&profile));
+    }
+
+    #[test]
+    fn module_launch_skips_flat_classpath() {
+        let profile = VersionProfile {
+            id: "test-forge".into(),
+            jar_id: "test-forge".into(),
+            main_class: "cpw.mods.bootstraplauncher.BootstrapLauncher".into(),
+            asset_index: String::new(),
+            minecraft_arguments: None,
+            arguments_jvm: vec![serde_json::json!("-p"), serde_json::json!("mods")],
+            arguments_game: vec![],
+            libraries: vec![],
+        };
+        assert!(uses_module_path_launch(&profile));
+        assert!(is_forge_like_version("1.20.1-forge-47.4.10"));
+        assert!(!is_forge_like_version("1.20.1"));
     }
 }

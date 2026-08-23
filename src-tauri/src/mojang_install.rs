@@ -4,6 +4,7 @@
 
 use crate::downloads::plan::{DownloadProgressEvent, ProgressThrottle};
 use crate::launch::{current_arch, current_os, rules_allow};
+use crate::minecraft_bootstrap::ensure_minecraft_root;
 use crate::scanner::default_minecraft_root;
 use futures_util::StreamExt;
 use serde::Serialize;
@@ -580,6 +581,7 @@ pub async fn install_mojang_version(
         .filter(|s| !s.is_empty())
         .map(PathBuf::from)
         .unwrap_or_else(default_minecraft_root);
+    ensure_minecraft_root(&root)?;
     let job_id = format!("mojang-{version_id}");
     let display = format!("Minecraft {version_id}");
     let gate = Arc::new(ProgressThrottle::new(150));

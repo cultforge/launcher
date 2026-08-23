@@ -382,10 +382,7 @@ pub struct LocalFile {
 }
 
 pub fn default_minecraft_root() -> PathBuf {
-    if let Ok(appdata) = std::env::var("APPDATA") {
-        return PathBuf::from(appdata).join(".minecraft");
-    }
-    PathBuf::from(".minecraft")
+    crate::minecraft_bootstrap::resolve_minecraft_root()
 }
 
 fn system_time_ms(time: std::io::Result<std::time::SystemTime>) -> Option<u64> {
