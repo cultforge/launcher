@@ -522,6 +522,63 @@ fn is_forge_like_version(version_id: &str) -> bool {
     lower.contains("forge") || lower.contains("neoforge")
 }
 
+fn is_vanilla_client_jar(path: &Path, version_id: &str) -> bool {
+    if !is_forge_like_version(version_id) {
+        return false;
+    }
+    let name = path
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or_default();
+    let lower = version_id.to_ascii_lowercase();
+    let mc = lower.split("-forge-").next().unwrap_or("");
+    !mc.is_empty() && name == format!("{mc}.jar")
+}
+
+fn collect_library_jars(
+    minecraft_root: &Path,
+    profile: &VersionProfile,
+    version_id: &str,
+    exclude_vanilla_client: bool,
+) -> Vec<String> {
+    let mut jars = Vec::new();
+    for lib in &profile.libraries {
+        if let Some(p) = library_path_from_entry(minecraft_root, lib) {
+            if !p.is_file() {
+                continue;
+            }
+            if exclude_vanilla_client && is_vanilla_client_jar(&p, version_id) {
+                continue;
+            }
+            jars.push(p.to_string_lossy().to_string());
+        }
+    }
+    jars
+}
+
+fn strip_flat_classpath_from_jvm_args(args: Vec<String>) -> Vec<String> {
+    let mut out = Vec::with_capacity(args.len());
+    let mut i = 0;
+    while i < args.len() {
+        if args[i] == "-cp" || args[i] == "-classpath" {
+            i += 2;
+            continue;
+        }
+        out.push(args[i].clone());
+        i += 1;
+    }
+    out
+}
+
+fn forge_client_jar_path(minecraft_root: &Path, version_id: &str) -> Option<PathBuf> {
+    // Forge 1.18+ writes the patched client under libraries, not versions/{id}/{id}.jar.
+    let lower = version_id.to_ascii_lowercase();
+    let mc = lower.split("-forge-").next()?;
+    let forge_ver = lower.split("-forge-").nth(1)?;
+    let path = minecraft_root.join("libraries").join("net/minecraftforge/forge").join(format!("{mc}-{forge_ver}")).join(format!("forge-{mc}-{forge_ver}-client.jar"));
+    path.is_file().then_some(path)
+}
+
 fn leaf_jar_path(minecraft_root: &Path, version_id: &str) -> PathBuf {
     minecraft_root
         .join("versions")
@@ -1040,6 +1097,7 @@ pub fn launch_minecraft(app: AppHandle, args: LaunchMinecraftArgs) -> Result<Lau
         .filter(|s| !s.is_empty())
         .map(PathBuf::from)
         .unwrap_or_else(default_minecraft_root);
+    crate::minecraft_bootstrap::ensure_minecraft_root(&minecraft_root)?;
 
     let version_id = args.version_id.trim();
     if version_id.is_empty() {
@@ -1063,7 +1121,11 @@ pub fn launch_minecraft(app: AppHandle, args: LaunchMinecraftArgs) -> Result<Lau
         .join(&profile.jar_id)
         .join(format!("{}.jar", profile.jar_id));
 
-    let mut classpath: Vec<String> = Vec::new();
+    let mut classpath: Vec<String> = if module_launch {
+        collect_library_jars(&minecraft_root, &profile, version_id, true)
+    } else {
+        Vec::new()
+    };
     let mut native_jars: Vec<PathBuf> = Vec::new();
     for lib in &profile.libraries {
         if !module_launch {
@@ -1088,6 +1150,8 @@ pub fn launch_minecraft(app: AppHandle, args: LaunchMinecraftArgs) -> Result<Lau
     let leaf_jar = leaf_jar_path(&minecraft_root, version_id);
     let game_jar = if leaf_jar.is_file() {
         leaf_jar
+    } else if module_launch {
+        forge_client_jar_path(&minecraft_root, version_id).unwrap_or_else(|| leaf_jar.clone())
     } else if is_forge_like_version(version_id) {
         return Err(format!(
             "Missing Forge client jar at {}. Reinstall {} from CultForge (Transfer Center → Forge).",
@@ -1166,8 +1230,16 @@ pub fn launch_minecraft(app: AppHandle, args: LaunchMinecraftArgs) -> Result<Lau
         }
     }
 
+    if module_launch && !classpath_joined.is_empty() {
+        jvm_args.push(format!("-DlegacyClassPath={classpath_joined}"));
+    }
+
     if !profile.arguments_jvm.is_empty() {
-        jvm_args.extend(flatten_args(&profile.arguments_jvm, &vars, custom_res));
+        let mut from_profile = flatten_args(&profile.arguments_jvm, &vars, custom_res);
+        if module_launch {
+            from_profile = strip_flat_classpath_from_jvm_args(from_profile);
+        }
+        jvm_args.extend(from_profile);
     } else {
         // Legacy pre-module-path launchers (vanilla / old Fabric).
         jvm_args.push("-cp".into());
@@ -1230,6 +1302,9 @@ pub fn launch_minecraft(app: AppHandle, args: LaunchMinecraftArgs) -> Result<Lau
         writeln!(log, "gameDir={}", game_dir_s).ok();
         writeln!(log, "jar={}", game_jar.display()).ok();
         writeln!(log, "classpathEntries={}", classpath.len()).ok();
+        if module_launch {
+            writeln!(log, "legacyClassPath=true").ok();
+        }
         writeln!(log, "dedicatedGpu={}", args.dedicated_gpu.unwrap_or(false)).ok();
         writeln!(log, "wrapper={}", args.wrapper.as_deref().unwrap_or("")).ok();
         writeln!(log, "--- jvm ---").ok();
@@ -1386,5 +1461,20 @@ mod tests {
         assert!(uses_module_path_launch(&profile));
         assert!(is_forge_like_version("1.20.1-forge-47.4.10"));
         assert!(!is_forge_like_version("1.20.1"));
+    }
+
+    #[test]
+    fn strip_inherited_vanilla_classpath_for_module_launch() {
+        let args = vec![
+            "-Djava.library.path=natives".into(),
+            "-cp".into(),
+            "vanilla.jar;libs".into(),
+            "-p".into(),
+            "bootstrap.jar".into(),
+        ];
+        let stripped = strip_flat_classpath_from_jvm_args(args);
+        assert!(!stripped.iter().any(|a| a == "-cp"));
+        assert!(!stripped.iter().any(|a| a.contains("vanilla.jar")));
+        assert!(stripped.contains(&"-p".to_string()));
     }
 }

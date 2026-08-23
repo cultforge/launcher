@@ -14,6 +14,8 @@ import {
   membershipForUser,
 } from "../../lib/guildPermissions";
 import { useGuildModalsStore } from "../../stores/guildModals";
+import { useNow } from "../../lib/clock";
+import { hallPeriodCopy } from "../../lib/hallCopy";
 
 function HeroQuickAction({
   label,
@@ -65,9 +67,11 @@ export function GuildHero({ guild }: { guild: Guild }) {
     return () => document.removeEventListener("mousedown", onPointer);
   }, [menuOpen]);
 
+  const now = useNow();
+  const hallCopy = hallPeriodCopy(now);
   const onlineHint =
     online > 0
-      ? `${online} here tonight`
+      ? `${online} here ${hallCopy.hangingOut}`
       : "The hall is open";
 
   return (

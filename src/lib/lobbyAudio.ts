@@ -121,7 +121,19 @@ function applyFileVolume(volume: number, muted: boolean) {
   fileEl.volume = muted ? 0 : Math.min(1, Math.max(0.05, volume));
 }
 
-async function tryLoadLobbyFile(): Promise<boolean> {
+async function tryLoadLobbyFile(force = false): Promise<boolean> {
+  if (force && fileEl) {
+    try {
+      fileEl.pause();
+    } catch {
+      /* ignore */
+    }
+    fileEl.src = "";
+    fileEl = null;
+    if (engine) {
+      engine.usingFile = false;
+    }
+  }
   let url = "";
   try {
     const theme = await fetchLobbyTheme();
@@ -137,6 +149,11 @@ async function tryLoadLobbyFile(): Promise<boolean> {
     url = (await tryLoadLocalFallback()) || "";
   }
   if (!url) return false;
+
+  if (force) {
+    const sep = url.includes("?") ? "&" : "?";
+    url = `${url}${sep}_cf=${Date.now()}`;
+  }
 
   // Play through <audio> directly. createMediaElementSource() steals output
   // into Web Audio — lyrics still advance, but WebView2 stays silent.
@@ -250,7 +267,7 @@ async function ensureEngine(): Promise<EngineState> {
   let usingFile = false;
 
   try {
-    usingFile = await tryLoadLobbyFile();
+    usingFile = await tryLoadLobbyFile(false);
   } catch {
     usingFile = false;
   }
@@ -277,6 +294,34 @@ export async function prefetchLobbyAudio(): Promise<void> {
     await ensureEngine();
   } catch {
     /* autoplay / offline — start() will retry */
+  }
+}
+
+/** Drop cached lobby file so the next prefetch picks up a new theme.mp3. */
+export async function reloadLobbyAudio(): Promise<void> {
+  await lobbyAudioStop();
+  if (fileEl) {
+    fileEl.src = "";
+    fileEl = null;
+  }
+  if (engine) {
+    try {
+      engine.stopNodes();
+    } catch {
+      /* ignore */
+    }
+    try {
+      await engine.ctx.close();
+    } catch {
+      /* ignore */
+    }
+    engine = null;
+  }
+  engineInflight = null;
+  try {
+    await tryLoadLobbyFile(true);
+  } catch {
+    /* offline — procedural fallback on next start */
   }
 }
 
@@ -324,6 +369,7 @@ export async function lobbyAudioStop() {
   if (fileEl) {
     try {
       fileEl.pause();
+      fileEl.currentTime = 0;
     } catch {
       /* ignore */
     }

@@ -4,6 +4,7 @@ import { toast } from "sonner";
 import { useBuildStore } from "../stores/build";
 import { useLaunchStore } from "../stores/launch";
 import { useLogConsoleUiStore } from "../stores/logConsoleUi";
+import { lobbyAudioStop } from "./lobbyAudio";
 import { useLobbyMusicStore } from "../stores/lobbyMusic";
 import { useSystemMetricsStore } from "../stores/systemMetrics";
 import { logger } from "./logger";
@@ -68,6 +69,11 @@ export async function enterLaunchIdleMode(): Promise<void> {
   idleActive = true;
   try {
     useLobbyMusicStore.getState().setPlaying(false);
+  } catch {
+    // ignore
+  }
+  try {
+    void lobbyAudioStop();
   } catch {
     // ignore
   }

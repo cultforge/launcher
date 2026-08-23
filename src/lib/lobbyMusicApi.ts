@@ -36,7 +36,7 @@ function pickString(obj: Record<string, unknown> | null, keys: string[]): string
 function parseTrack(raw: unknown): LobbyTheme | null {
   const obj = asRecord(raw);
   if (!obj) return null;
-  const audioUrl = pickString(obj, [
+  let audioUrl = pickString(obj, [
     "audio_static_url",
     "audioStaticUrl",
     "audio_url",
@@ -44,6 +44,19 @@ function parseTrack(raw: unknown): LobbyTheme | null {
     "url",
   ]);
   if (!audioUrl) return null;
+  const versionKey = pickString(obj, [
+    "updated_at",
+    "updatedAt",
+    "version",
+    "revision",
+    "etag",
+    "content_hash",
+    "contentHash",
+  ]);
+  if (versionKey) {
+    const sep = audioUrl.includes("?") ? "&" : "?";
+    audioUrl = `${audioUrl}${sep}v=${encodeURIComponent(versionKey)}`;
+  }
   const lyricsRaw = obj.lyrics;
   return {
     audioUrl,

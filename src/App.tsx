@@ -31,7 +31,7 @@ import { startLaunchLifecycle } from "./lib/launchLifecycle";
 import {
   lobbyAudioStart,
   lobbyAudioUnlock,
-  prefetchLobbyAudio,
+  reloadLobbyAudio,
 } from "./lib/lobbyAudio";
 import { LyricsWidget } from "./components/LyricsWidget";
 
@@ -219,7 +219,7 @@ function App() {
         useAppStore.getState().setClientReady(true);
         startClientLogStream();
         logger.success("Local client ready");
-        const prefetch = prefetchLobbyAudio();
+        const themeReload = reloadLobbyAudio();
         try {
           const status = await health(controller.signal);
           if (!status.remote) {
@@ -241,7 +241,7 @@ function App() {
 
         if (!cancelled) setPhase("signing-in");
         await useAppStore.getState().hydrateSession();
-        await prefetch;
+        await themeReload;
 
         if (!cancelled) {
           window.clearInterval(timer);
@@ -262,7 +262,7 @@ function App() {
           startLocalContentPipeline();
           setPhase("offline");
           await useAppStore.getState().hydrateSession();
-          await prefetchLobbyAudio();
+          await reloadLobbyAudio();
           await beginLobbyBeforeReady();
           if (cancelled) return;
           window.clearInterval(timer);

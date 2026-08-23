@@ -2,6 +2,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { toast } from "sonner";
 import type { BuildInstance } from "../stores/build";
 import { useLaunchStore } from "../stores/launch";
+import { useLobbyMusicStore } from "../stores/lobbyMusic";
 import { useLogConsoleUiStore } from "../stores/logConsoleUi";
 import { useSettingsStore } from "../stores/settings";
 import { useAppStore } from "../userstore";
@@ -11,6 +12,7 @@ import {
   enterLaunchIdleMode,
   rememberLaunchContext,
 } from "./launchLifecycle";
+import { lobbyAudioStop } from "./lobbyAudio";
 import { logger } from "./logger";
 import {
   ensureBuildInstance,
@@ -256,6 +258,17 @@ export async function launchMinecraft(build: BuildInstance): Promise<boolean> {
 
   launchStore.setStarting(true, build.id);
   logger.info(`Launch requested: ${build.name} (${versionId})`);
+  try {
+    useLobbyMusicStore.getState().setPlaying(false);
+    void lobbyAudioStop();
+  } catch {
+    /* ignore */
+  }
+  try {
+    void enterLaunchIdleMode();
+  } catch {
+    /* ignore */
+  }
 
   try {
     // Guild-managed: level-1 manifest sync (mods + resource packs). If already

@@ -59,10 +59,12 @@ fn is_client_file(env: &str) -> bool {
     lower.is_empty() || lower == "client" || lower == "both"
 }
 
-/// Level-1 play sync: mods + resource packs are required. Shaders/configs are not.
+/// Level-1 play sync: mods, resource packs, and datapacks are required for play.
 fn is_level1_path(rel: &str) -> bool {
     let norm = normalize_rel(rel).to_ascii_lowercase();
-    norm.starts_with("mods/") || norm.starts_with("resourcepacks/")
+    norm.starts_with("mods/")
+        || norm.starts_with("resourcepacks/")
+        || norm.starts_with("datapacks/")
 }
 
 fn is_play_mode(mode: &str) -> bool {

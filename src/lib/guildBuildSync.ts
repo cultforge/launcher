@@ -60,7 +60,11 @@ function fetchBytesForPaths(
     .filter((file) => {
       const path = file.path.replace(/\\/g, "/").toLowerCase();
       if (syncMode === "play") {
-        if (!path.startsWith("mods/") && !path.startsWith("resourcepacks/")) {
+        if (
+          !path.startsWith("mods/") &&
+          !path.startsWith("resourcepacks/") &&
+          !path.startsWith("datapacks/")
+        ) {
           return false;
         }
       }
@@ -283,7 +287,9 @@ async function runSyncPlan(
               if (syncMode !== "play") return true;
               const path = file.path.replace(/\\/g, "/").toLowerCase();
               return (
-                path.startsWith("mods/") || path.startsWith("resourcepacks/")
+                path.startsWith("mods/") ||
+                path.startsWith("resourcepacks/") ||
+                path.startsWith("datapacks/")
               );
             })
             .reduce((sum, file) => sum + (Number(file.sizeBytes) || 0), 0);

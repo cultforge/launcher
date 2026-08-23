@@ -3,10 +3,13 @@ import {
   fetchDiscoverableGuilds,
   type DiscoverGuildCard,
 } from "../../lib/cultApi";
+import { CacheKeys, invalidateApiCache } from "../../lib/apiCache";
 import { useGuildStore } from "../../stores/guilds";
 import { logger } from "../../lib/logger";
 import { GuildIcon } from "../GuildIcon";
 import { handleContentHref } from "../../lib/deepLinks";
+import { Icon } from "../ico";
+import { AppIcons } from "../icons";
 
 export function GuildDiscoverPanel() {
   const setDiscoverOpen = useGuildStore((s) => s.setDiscoverOpen);
@@ -16,6 +19,8 @@ export function GuildDiscoverPanel() {
   const [query, setQuery] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const [refreshKey, setRefreshKey] = useState(0);
 
   useEffect(() => {
     let cancelled = false;
@@ -38,7 +43,13 @@ export function GuildDiscoverPanel() {
     return () => {
       cancelled = true;
     };
-  }, [catalogRevision]);
+  }, [catalogRevision, refreshKey]);
+
+  const refreshDiscover = () => {
+    void invalidateApiCache(CacheKeys.guildDiscover).then(() => {
+      setRefreshKey((k) => k + 1);
+    });
+  };
 
   const filtered = items.filter((g) => {
     const q = query.trim().toLowerCase();
@@ -68,12 +79,22 @@ export function GuildDiscoverPanel() {
             Public communities from CultForge. Join via invite when listed.
           </p>
         </div>
-        <input
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          placeholder="Search guilds…"
-          className="h-9 w-full max-w-xs rounded-lg border border-border-subtle bg-black/25 px-3 text-[12px] outline-none focus:border-primary-base/45"
-        />
+        <div className="flex items-center gap-2 w-full max-w-xs">
+          <input
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Search guilds…"
+            className="h-9 flex-1 rounded-lg border border-border-subtle bg-black/25 px-3 text-[12px] outline-none focus:border-primary-base/45"
+          />
+          <button
+            type="button"
+            title="Refresh discover list"
+            onClick={refreshDiscover}
+            className="cf-btn-ghost h-9 w-9 rounded-lg flex items-center justify-center cursor-pointer shrink-0"
+          >
+            <Icon icon={AppIcons.Swap} className="h-4 w-4" />
+          </button>
+        </div>
       </header>
 
       {error ? (

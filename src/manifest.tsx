@@ -40,6 +40,16 @@ const homeSideNav: SMenu[] = [
 
       },
 
+      {
+
+        label: "Discover",
+
+        icon: AppIcons.Compass,
+
+        primaryTab: "Guilds",
+
+      },
+
     ],
 
   },
@@ -81,6 +91,8 @@ export const SideMenus: Record<PrimaryTab, SMenu[]> = {
       options: [
 
         { label: "Guilds", icon: AppIcons.Guilds, primaryTab: "Guilds" },
+
+        { label: "Discover", icon: AppIcons.Compass, primaryTab: "Guilds" },
 
       ],
 

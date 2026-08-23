@@ -755,6 +755,23 @@ function projectKeyFromRef(ref: GuildBuildModRef): string | null {
   return raw;
 }
 
+function isDatapackRef(ref: GuildBuildModRef): boolean {
+  const raw = (ref.slug || ref.name || "").trim();
+  return /^cf-datapack:/i.test(raw);
+}
+
+function destForRef(
+  ref: GuildBuildModRef,
+  hint: string | undefined,
+  projectType: string,
+): ReturnType<typeof destKindForProjectType> {
+  if (isDatapackRef(ref)) return "datapacks";
+  if (hint === "shader") return "shaderpacks";
+  if (hint === "resourcepack") return "resourcepacks";
+  if (hint === "datapack") return "datapacks";
+  return destKindForProjectType(projectType);
+}
+
 function kindForDest(
   dest: ReturnType<typeof destKindForProjectType>,
 ): BuildContentKind {
@@ -909,7 +926,7 @@ export async function resolveCatalogInstallManifest(
         if (seenProjects.has(dep.project_id)) continue;
         depProjects.push(dep.project_id);
       }
-      const dest = destKindForProjectType(hint || project.project_type);
+      const dest = destForRef(ref, hint, project.project_type);
       const entry: BuildManifestFile = {
         path: `${dest}/${file.filename}`,
         kind: kindForDest(dest),

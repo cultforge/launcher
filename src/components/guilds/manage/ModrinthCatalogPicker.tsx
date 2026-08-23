@@ -11,6 +11,7 @@ import { cn } from "../../../lib/cn";
 import { Icon } from "../../ico";
 import { AppIcons } from "../../icons";
 import { ModrinthPreviewModal } from "./ModrinthPreviewModal";
+import { ModDependencyPanel } from "./ModDependencyPanel";
 
 const fieldClass =
   "h-10 w-full rounded-xl border border-border-subtle bg-black/25 px-3.5 text-[13px] text-text-primary outline-none placeholder:text-text-disabled focus:border-primary-base/45";
@@ -179,6 +180,7 @@ export function ModrinthCatalogPicker({
   variant = "stack",
 }: Props) {
   const [query, setQuery] = useState("");
+  const [basketQuery, setBasketQuery] = useState("");
   const [hits, setHits] = useState<ModrinthHit[]>([]);
   const [busy, setBusy] = useState(false);
   const [pickingId, setPickingId] = useState<string | null>(null);
@@ -295,6 +297,13 @@ export function ModrinthCatalogPicker({
   const countLabel = allowOptionalToggle
     ? `${requiredCount} required · ${optionalCount} optional`
     : `${selected.length} in pack`;
+  const basketNeedle = basketQuery.trim().toLowerCase();
+  const filteredSelected = basketNeedle
+    ? selected.filter((m) => {
+        const hay = `${m.name} ${m.slug ?? ""} ${m.version ?? ""}`.toLowerCase();
+        return hay.includes(basketNeedle);
+      })
+    : selected;
 
   const filterBadge =
     versionFilterActive || loaderFilterActive ? (
@@ -373,9 +382,13 @@ export function ModrinthCatalogPicker({
           Search and tap Add. Ctrl+click a result to preview on Modrinth.
         </p>
       </div>
+    ) : filteredSelected.length === 0 ? (
+      <p className="px-3 py-8 text-center text-[12px] text-text-muted">
+        No mods match your filter.
+      </p>
     ) : (
       <ul className="flex flex-col gap-0.5 p-1.5">
-        {selected.map((item) => (
+        {filteredSelected.map((item) => (
           <SelectedRow
             key={`${item.projectId}:${item.versionId}`}
             item={item}
@@ -438,12 +451,27 @@ export function ModrinthCatalogPicker({
                   In your pack
                 </p>
                 <p className="text-[10px] text-text-disabled">{countLabel}</p>
+                <input
+                  type="search"
+                  value={basketQuery}
+                  onChange={(e) => setBasketQuery(e.target.value)}
+                  placeholder="Filter mods in pack…"
+                  className="mt-2 w-full rounded-lg border border-border-subtle bg-bg-base px-2.5 py-1.5 text-[12px] text-text-primary placeholder:text-text-muted outline-none focus:border-primary-base/45"
+                />
               </div>
               <div className="scrollbar-cultforge flex min-h-0 flex-1 flex-col overflow-y-auto">
                 {basketBody}
               </div>
             </div>
           </div>
+
+          {projectType === "mod" && selected.length > 0 ? (
+            <ModDependencyPanel
+              selected={selected}
+              gameVersion={gameVersion}
+              loader={loader}
+            />
+          ) : null}
         </div>
         {previewModal}
       </>

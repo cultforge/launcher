@@ -55,11 +55,12 @@ export function isCommunityNavActive(
   discoverOpen: boolean,
 ): boolean {
   if (primaryTab !== "Guilds") return false;
+  if (label === "Discover") return discoverOpen;
   if (label === "Guilds") {
     return !discoverOpen && hubTab === "Overview";
   }
   const mapped = communityLabelToHubTab(label);
-  return mapped != null && mapped !== "Overview" && hubTab === mapped;
+  return mapped != null && mapped !== "Overview" && hubTab === mapped && !discoverOpen;
 }
 
 export function filterHubTabsForPreferences(

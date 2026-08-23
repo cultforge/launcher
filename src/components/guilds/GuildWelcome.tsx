@@ -14,6 +14,8 @@ import {
 import { hasDiscordSource } from "../../lib/discordWidget";
 import { discordSourceForGuild } from "../../data/guilds";
 import { canonicalizeHostedAvatarUrl } from "../../lib/authProfile";
+import { hallPeriodCopy } from "../../lib/hallCopy";
+import { ActivityFeedPanel } from "./ActivityFeedPanel";
 import { useAppStore } from "../../userstore";
 import type { CurrentUser } from "../../userstore";
 
@@ -219,6 +221,7 @@ export function GuildWelcome({ guild }: { guild: Guild }) {
   const userId = useAppStore((s) => s.currentUser?.id ?? "");
   const currentUser = useAppStore((s) => s.currentUser);
   const now = useNow();
+  const hallCopy = hallPeriodCopy(now);
   const canManage = capabilitiesForRole(
     membershipForUser(members, guild.id, userId)?.role,
   ).openManagement;
@@ -326,7 +329,7 @@ export function GuildWelcome({ guild }: { guild: Guild }) {
   if (featuredBuild) {
     moments.push(
       <HallMoment key="build" onClick={() => setHubTab("Builds")}>
-        Tonight&apos;s pack:{" "}
+        {hallCopy.featuredPackPrefix}:{" "}
         <strong className="font-medium text-text-primary">
           {featuredBuild.name}
         </strong>{" "}
@@ -353,7 +356,7 @@ export function GuildWelcome({ guild }: { guild: Guild }) {
             </h3>
             <p className="mt-2 max-w-md text-[14px] leading-relaxed text-text-secondary">
               {presenceNames
-                ? `${presenceNames} ${online.length === 1 ? "is" : "are"} hanging out tonight.`
+                ? `${presenceNames} ${online.length === 1 ? "is" : "are"} hanging out ${hallCopy.hangingOut}.`
                 : roster.length > 0
                   ? `${guild.name} is your crew's place to meet, play, and catch up.`
                   : "Invite people in — guilds are better with company."}
@@ -399,8 +402,24 @@ export function GuildWelcome({ guild }: { guild: Guild }) {
       <div className="guild-hall-divider" />
 
       <div className="guild-hall-tonight">
-        <p className="guild-hall-label">On the table tonight</p>
+        <p className="guild-hall-label">{hallCopy.tableHeading}</p>
         <ul className="mt-3 flex flex-col gap-0.5">{moments}</ul>
+      </div>
+
+      <div className="guild-hall-divider" />
+
+      <div className="mt-1">
+        <div className="flex items-center justify-between gap-2 mb-2">
+          <p className="guild-hall-label">Agent buzz</p>
+          <button
+            type="button"
+            onClick={() => setHubTab("Activity")}
+            className="text-[10px] font-semibold text-primary-base cursor-pointer"
+          >
+            See all
+          </button>
+        </div>
+        <ActivityFeedPanel guildId={guild.id} compact max={4} />
       </div>
 
       <div className="guild-hall-divider" />

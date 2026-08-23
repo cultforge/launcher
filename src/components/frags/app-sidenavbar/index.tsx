@@ -240,19 +240,20 @@ function NavigationBar({ collapsed, onToggle }: Omit<NavigationBarProps, "smenu"
                 const isBuildsHome =
                   item.label === HOME_BUILDS_SIDE &&
                   isHomeBuildsView(primaryTab, sideItem);
-                const isActive =
-                  guildShortcut != null
-                    ? isCommunityNavActive(
-                        item.label,
-                        primaryTab,
-                        hubTab,
-                        discoverOpen,
-                      )
-                    : isBuildsHome ||
-                      (item.label === sideItem &&
-                        (item.primaryTab === primaryTab ||
-                          (item.primaryTab === "Home" &&
-                            primaryTab === "Home")));
+                const guildCommunity =
+                  item.label === "Discover" || guildShortcut != null;
+                const isActive = guildCommunity
+                  ? isCommunityNavActive(
+                      item.label,
+                      primaryTab,
+                      hubTab,
+                      discoverOpen,
+                    )
+                  : isBuildsHome ||
+                    (item.label === sideItem &&
+                      (item.primaryTab === primaryTab ||
+                        (item.primaryTab === "Home" &&
+                          primaryTab === "Home")));
                 return (
                 <SideNavItem
                   key={item.label}
@@ -263,6 +264,13 @@ function NavigationBar({ collapsed, onToggle }: Omit<NavigationBarProps, "smenu"
                   isActive={isActive}
                   onClick={() => {
                     closeProfile();
+                    if (item.label === "Discover" && item.primaryTab === "Guilds") {
+                      setPrimaryTab("Guilds");
+                      setSideItem("Guilds");
+                      setDiscoverOpen(true);
+                      return;
+                    }
+                    const guildShortcut = communityLabelToHubTab(item.label);
                     if (item.primaryTab === "Guilds" && guildShortcut) {
                       setPrimaryTab("Guilds");
                       setSideItem("Guilds");

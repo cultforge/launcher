@@ -40,14 +40,14 @@ export function LobbyMusicControls() {
   const rafRef = useRef(0);
 
   useEffect(() => {
-    if (playing) {
+    if (playing && !visualIdle) {
       lobbyAudioStart(volume, muted).catch(() => {
         /* keep playing=true — gesture unlock retries */
       });
     } else {
       lobbyAudioStop();
     }
-  }, [playing]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [playing, visualIdle]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     lobbyAudioSetVolume(volume, muted, playing);
