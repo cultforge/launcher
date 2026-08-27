@@ -36,12 +36,12 @@ export function AccountSwitcherPanel() {
     if (!enabled || !user?.id) return;
     void stashLocalAccount({
       userId: user.id,
-      name: user.name || user.handle || user.id,
+      name: user.name || user.id,
       avatarUrl: user.avatarUrl,
     })
       .then(setRows)
       .catch(() => undefined);
-  }, [enabled, user?.id, user?.name, user?.handle, user?.avatarUrl]);
+  }, [enabled, user?.id, user?.name, user?.avatarUrl]);
 
   if (!enabled) return null;
 
@@ -51,7 +51,7 @@ export function AccountSwitcherPanel() {
       try {
         await stashLocalAccount({
           userId: user.id,
-          name: user.name || user.handle || user.id,
+          name: user.name || user.id,
           avatarUrl: user.avatarUrl,
         });
       } catch {
@@ -89,7 +89,7 @@ export function AccountSwitcherPanel() {
       try {
         await stashLocalAccount({
           userId: user.id,
-          name: user.name || user.handle || user.id,
+          name: user.name || user.id,
           avatarUrl: user.avatarUrl,
         });
       } catch {
