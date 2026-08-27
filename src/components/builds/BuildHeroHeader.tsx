@@ -11,7 +11,8 @@ import { cn } from "../../lib/cn";
 import { EntityImage } from "../EntityImage";
 import { canLaunchBuild } from "../../lib/launchGate";
 import { launchMinecraft } from "../../lib/launchMinecraft";
-import { syncManagedBuild } from "../../lib/guildBuildSync";
+import { syncManagedBuild, reinstallGuildBuild } from "../../lib/guildBuildSync";
+import { ShareDeepLinkButton } from "../CopyButton";
 import { useLaunchStore } from "../../stores/launch";
 import { useBuildModalsStore } from "../../stores/buildModals";
 
@@ -116,6 +117,31 @@ export function BuildHeroHeader({
             </div>
 
             <div className="flex items-center gap-2 shrink-0">
+              {active.managed ? (
+                <button
+                  type="button"
+                  disabled={active.syncStatus === "syncing"}
+                  onClick={() => {
+                    void reinstallGuildBuild(active.id).catch((err) =>
+                      toast.error(
+                        err instanceof Error ? err.message : "Reinstall failed",
+                      ),
+                    );
+                  }}
+                  title="Re-download all guild manifest files"
+                  className="hidden sm:flex items-center gap-1 rounded-lg border border-white/12 px-2.5 py-1.5 text-[10px] font-semibold text-text-secondary hover:text-text-primary hover:bg-white/6 cursor-pointer disabled:opacity-45 disabled:cursor-not-allowed"
+                >
+                  <Icon icon={AppIcons.Swap} size={12} />
+                  {active.syncStatus === "syncing" ? "Syncing…" : "Reinstall"}
+                </button>
+              ) : null}
+              {active.guildId ? (
+                <ShareDeepLinkButton
+                  link={{ kind: "guild", guildId: active.guildId }}
+                  label="Share"
+                  className="hidden sm:inline-flex border-white/12"
+                />
+              ) : null}
               <button
                 type="button"
                 onClick={() => openModal("add")}

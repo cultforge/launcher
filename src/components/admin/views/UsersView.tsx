@@ -22,6 +22,12 @@ import {
   OpsStatusPill,
   type OpsColumn,
 } from "../ui/ops";
+import { OpsJsonBlock } from "../ui/OpsJsonBlock";
+import {
+  formatRelativeTime,
+  userDisplayName,
+} from "../../../lib/adminFormatters";
+import { CopyButton } from "../../CopyButton";
 
 type UserRow = Record<string, unknown> & { id: string };
 
@@ -129,11 +135,9 @@ export function UsersView() {
         render: (r) => (
           <div>
             <div className="text-text-primary font-medium">
-              {String(r.username ?? r.display_name ?? r.name ?? r.id)}
+              {userDisplayName(r)}
             </div>
-            <div className="font-mono text-[10px] text-text-disabled">
-              {r.id}
-            </div>
+            <div className="font-mono text-[10px] text-text-disabled">{r.id}</div>
           </div>
         ),
       },
@@ -145,11 +149,31 @@ export function UsersView() {
         ),
       },
       {
+        key: "account",
+        header: "Account",
+        render: (r) => (
+          <span className="text-[11px] capitalize">
+            {String(r.account_type ?? r.type ?? "—")}
+          </span>
+        ),
+      },
+      {
+        key: "joined",
+        header: "Joined",
+        render: (r) => (
+          <span className="text-[11px] text-text-muted">
+            {formatRelativeTime(r.created_at ?? r.joined_at) || "—"}
+          </span>
+        ),
+      },
+      {
         key: "status",
         header: "Status",
         render: (r) =>
           r.is_banned || r.banned ? (
             <OpsStatusPill state="err" label="Banned" />
+          ) : r.is_active === false ? (
+            <OpsStatusPill state="warn" label="Inactive" />
           ) : (
             <OpsStatusPill state="ok" label="Active" />
           ),
@@ -157,11 +181,17 @@ export function UsersView() {
       {
         key: "role",
         header: "Role",
-        render: (r) => (
-          <span className="text-[11px]">
-            {String(r.ext_rank ?? r.role ?? (r.admin ? "admin" : "—"))}
-          </span>
-        ),
+        render: (r) => {
+          const roles = Array.isArray(r.roles)
+            ? r.roles.map(String).join(", ")
+            : "";
+          return (
+            <span className="text-[11px]">
+              {roles ||
+                String(r.ext_rank ?? r.role ?? (r.admin ? "admin" : "—"))}
+            </span>
+          );
+        },
       },
     ],
     [],
@@ -175,10 +205,10 @@ export function UsersView() {
       />
       <OpsToolbar>
         <OpsInput
-          placeholder="Search q…"
+          placeholder="Search name, email, or id"
           value={q}
           onChange={(e) => setQ(e.target.value)}
-          className="w-48"
+          className="w-56"
           onKeyDown={(e) => {
             if (e.key === "Enter") void load();
           }}
@@ -218,15 +248,15 @@ export function UsersView() {
           <div className="space-y-4">
             <div>
               <div className="font-sora text-[15px] font-bold text-text-primary">
-                {String(
-                  detail.username ??
-                    detail.display_name ??
-                    detail.name ??
-                    detailId,
-                )}
+                {userDisplayName(detail)}
               </div>
-              <div className="font-mono text-[11px] text-text-muted">
-                {detailId}
+              <div className="mt-1 flex items-center gap-2 font-mono text-[11px] text-text-muted">
+                <span>{detailId}</span>
+                <CopyButton
+                  text={String(detailId ?? "")}
+                  label="Copy id"
+                  className="py-0.5"
+                />
               </div>
               <div className="mt-1 text-[12px] text-text-secondary">
                 {String(detail.email ?? "")}
@@ -346,8 +376,20 @@ export function UsersView() {
                         key={sid}
                         className="flex items-center justify-between gap-2 rounded border border-white/8 px-2 py-1.5"
                       >
-                        <span className="font-mono text-[10px] text-text-muted truncate">
-                          {fp}
+                        <span className="min-w-0 flex-1">
+                          <div className="text-[11px] text-text-secondary truncate">
+                            {String(s.platform ?? s.client ?? s.ua ?? "Session")}
+                            {s.ip || s.ip_address
+                              ? ` · ${String(s.ip ?? s.ip_address)}`
+                              : ""}
+                            {s.country ? ` · ${String(s.country)}` : ""}
+                          </div>
+                          <div className="font-mono text-[10px] text-text-muted truncate">
+                            {fp}
+                            {s.created_at || s.expires_at
+                              ? ` · ${formatRelativeTime(s.created_at ?? s.expires_at)}`
+                              : ""}
+                          </div>
                         </span>
                         <OpsButton
                           variant="danger"
@@ -367,6 +409,7 @@ export function UsersView() {
                 </ul>
               )}
             </div>
+            <OpsJsonBlock value={detail} title="user detail" />
           </div>
         )}
       </OpsDrawer>

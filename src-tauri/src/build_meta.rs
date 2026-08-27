@@ -18,6 +18,9 @@ pub struct PersistedBuildConfig {
     pub fullscreen: bool,
     pub close_on_launch: bool,
     pub dedicated_gpu: bool,
+    /// Experimental: pin MC to a dedicated core + high priority.
+    #[serde(default)]
+    pub cpu_pin: bool,
     #[serde(default)]
     pub playtime_minutes: f64,
     #[serde(default)]
@@ -36,6 +39,7 @@ impl Default for PersistedBuildConfig {
             fullscreen: false,
             close_on_launch: false,
             dedicated_gpu: true,
+            cpu_pin: false,
             playtime_minutes: 0.0,
             last_played_ms: 0,
         }

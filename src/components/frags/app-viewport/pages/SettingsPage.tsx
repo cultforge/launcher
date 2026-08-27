@@ -5,6 +5,7 @@ import { Icon } from "../../../ico";
 import { AppIcons } from "../../../icons";
 import { ThemeManager } from "../../../settings/ThemeManager";
 import { LinkedAccountsPanel } from "../../../settings/LinkedAccountsPanel";
+import { AccountSwitcherPanel } from "../../../settings/AccountSwitcherPanel";
 import { E2eIdentityPanel } from "../../../settings/E2eIdentityPanel";
 import { AssistantApiPanel } from "../../../settings/AssistantApiPanel";
 import { useLobbyMusicStore } from "../../../../stores/lobbyMusic";
@@ -55,6 +56,12 @@ const CATEGORIES: {
     label: "Notifications",
     description: "Updates and friend activity",
     icon: AppIcons.Notifications,
+  },
+  {
+    id: "experimental",
+    label: "Experimental",
+    description: "Labs features — default off",
+    icon: AppIcons.Activity,
   },
   {
     id: "paths",
@@ -354,25 +361,26 @@ export default function SettingsPage() {
   const dirty = JSON.stringify(draft) !== JSON.stringify(settings);
 
   return (
-    <div className="h-full overflow-y-auto scroll-hidden p-4 pb-24 flex flex-col gap-3">
-      <header className="cf-panel rounded-xl px-4 py-4 flex items-end justify-between gap-4">
+    <div className="h-full min-h-0 flex flex-col bg-bg-app">
+      <header className="shrink-0 border-b border-white/8 px-5 py-4 flex items-end justify-between gap-4 bg-bg-elevated/40">
         <div>
-          <h2 className="font-sora text-[18px] font-bold text-text-primary">
+          <h2 className="font-sora text-[22px] font-bold text-text-primary">
             Settings
           </h2>
-          <p className="text-[12px] text-text-muted mt-1">
-            Launcher preferences — instance settings remain under Builds.
+          <p className="text-[12px] text-text-muted mt-1 max-w-xl">
+            Full launcher preferences — appearance, audio, accounts, paths, and
+            licenses. Per-build options stay under Builds.
           </p>
         </div>
-        {dirty && (
-          <span className="text-[10px] text-primary-base shrink-0">
+        {dirty && category !== "appearance" && category !== "licenses" ? (
+          <span className="text-[10px] text-primary-base shrink-0 rounded-full border border-primary-base/30 bg-primary-base/10 px-2.5 py-1">
             Unsaved changes
           </span>
-        )}
+        ) : null}
       </header>
 
-      <div className="grid grid-cols-1 md:grid-cols-[220px_minmax(0,1fr)] gap-3 items-start">
-        <nav className="cf-panel rounded-xl p-1.5 flex md:flex-col gap-1 overflow-x-auto scroll-hidden">
+      <div className="min-h-0 flex-1 grid grid-cols-1 md:grid-cols-[240px_minmax(0,1fr)]">
+        <nav className="border-b md:border-b-0 md:border-r border-white/8 p-2 flex md:flex-col gap-1 overflow-x-auto md:overflow-y-auto scroll-hidden bg-black/15">
           {CATEGORIES.map((item) => {
             const active = category === item.id;
             return (
@@ -381,7 +389,7 @@ export default function SettingsPage() {
                 type="button"
                 onClick={() => setCategory(item.id)}
                 className={cn(
-                  "min-w-42.5 md:min-w-0 w-full flex items-center gap-3 px-3 py-3 rounded-lg text-left border cursor-pointer transition-colors",
+                  "min-w-42.5 md:min-w-0 w-full flex items-center gap-3 px-3 py-3 rounded-xl text-left border cursor-pointer transition-colors",
                   active
                     ? "bg-primary-base/10 border-primary-base/25"
                     : "border-transparent hover:bg-white/3",
@@ -406,7 +414,7 @@ export default function SettingsPage() {
                   >
                     {item.label}
                   </span>
-                  <span className="block text-[9px] text-text-disabled truncate mt-0.5">
+                  <span className="hidden md:block text-[9px] text-text-disabled truncate mt-0.5">
                     {item.description}
                   </span>
                 </span>
@@ -417,7 +425,7 @@ export default function SettingsPage() {
 
         <section
           id={`settings-${category}`}
-          className="cf-panel rounded-xl p-4 min-h-90 flex flex-col gap-4"
+          className="min-h-0 overflow-y-auto scroll-hidden p-4 pb-28 flex flex-col gap-4"
         >
           {category === "appearance" && (
             <>
@@ -542,6 +550,40 @@ export default function SettingsPage() {
                   onChange={(v) => setDraft({ notifyFriends: v })}
                 />
               </div>
+            </>
+          )}
+
+          {category === "experimental" && (
+            <>
+              <PanelHeader
+                title="Experimental"
+                description="Labs features. Default off. May change or break."
+              />
+              <div className="divide-y divide-white/6">
+                <ToggleRow
+                  label="Windows toast notifications"
+                  description="Native OS toast for unread notifications. Read items never toast again."
+                  checked={draft.experimentalOsToasts}
+                  onChange={(v) => setDraft({ experimentalOsToasts: v })}
+                />
+                <ToggleRow
+                  label="Chat @mentions"
+                  description="Tag people with @ in DMs and guild chat"
+                  checked={draft.experimentalChatMentions}
+                  onChange={(v) => setDraft({ experimentalChatMentions: v })}
+                />
+                <ToggleRow
+                  label="Account switching"
+                  description="Stash sessions on this PC and switch CultForge accounts"
+                  checked={draft.experimentalAccountSwitch}
+                  onChange={(v) => setDraft({ experimentalAccountSwitch: v })}
+                />
+              </div>
+              <p className="text-[11px] text-text-muted leading-relaxed">
+                Per-build CPU pin lives on each build’s Configuration tab (not
+                here). Minecraft profiles are written automatically on install.
+              </p>
+              <AccountSwitcherPanel />
             </>
           )}
 

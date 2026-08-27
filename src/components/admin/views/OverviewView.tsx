@@ -1,5 +1,10 @@
 import { useCallback, useEffect, useState } from "react";
-import { AdminClient, unwrapAdminData } from "../../../lib/adminClient";
+import {
+  AdminClient,
+  pickAdminNumber,
+  pickAdminString,
+  unwrapAdminRecord,
+} from "../../../lib/adminClient";
 import {
   OpsButton,
   OpsError,
@@ -7,11 +12,17 @@ import {
   OpsStatGrid,
   OpsStatusPill,
 } from "../ui/ops";
+import { OpsJsonBlock } from "../ui/OpsJsonBlock";
 
 function asRec(v: unknown): Record<string, unknown> | null {
   return v && typeof v === "object" && !Array.isArray(v)
     ? (v as Record<string, unknown>)
     : null;
+}
+
+function fmtNum(n: number | null, suffix = ""): string {
+  if (n == null) return "—";
+  return `${n}${suffix}`;
 }
 
 export function OverviewView() {
@@ -20,19 +31,38 @@ export function OverviewView() {
   const [live, setLive] = useState<Record<string, unknown> | null>(null);
   const [services, setServices] = useState<Record<string, unknown> | null>(null);
   const [chloe, setChloe] = useState<Record<string, unknown> | null>(null);
+  const [rawBundle, setRawBundle] = useState<unknown>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
       const [a, b, c] = await Promise.all([
-        AdminClient.metricsLive().catch(() => null),
-        AdminClient.metricsServices().catch(() => null),
-        AdminClient.chloeOverview().catch(() => null),
+        AdminClient.metricsLive().catch((e) => e),
+        AdminClient.metricsServices().catch((e) => e),
+        AdminClient.chloeOverview().catch((e) => e),
       ]);
-      setLive(asRec(unwrapAdminData(a)) ?? asRec(a));
-      setServices(asRec(unwrapAdminData(b)) ?? asRec(b));
-      setChloe(asRec(unwrapAdminData(c)) ?? asRec(c));
+      const liveRec =
+        a instanceof Error ? null : unwrapAdminRecord(a) ?? asRec(a);
+      const svcRec =
+        b instanceof Error ? null : unwrapAdminRecord(b) ?? asRec(b);
+      const chloeRec =
+        c instanceof Error ? null : unwrapAdminRecord(c) ?? asRec(c);
+      setLive(liveRec);
+      setServices(svcRec);
+      setChloe(chloeRec);
+      setRawBundle({
+        live: a instanceof Error ? { error: a.message } : a,
+        services: b instanceof Error ? { error: b.message } : b,
+        chloe: c instanceof Error ? { error: c.message } : c,
+      });
+      if (!liveRec && !svcRec && !chloeRec) {
+        const msg = [a, b, c]
+          .filter((x): x is Error => x instanceof Error)
+          .map((e) => e.message)
+          .join(" · ");
+        setError(msg || "Overview metrics unavailable");
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load overview");
     } finally {
@@ -44,7 +74,7 @@ export function OverviewView() {
     void load();
   }, [load]);
 
-  const aggregate = String(services?.aggregate ?? "—");
+  const aggregate = pickAdminString(services, ["aggregate", "status", "state"]);
   const aggState =
     aggregate === "ok"
       ? "ok"
@@ -53,6 +83,21 @@ export function OverviewView() {
         : aggregate === "down"
           ? "err"
           : "muted";
+
+  const uptime =
+    pickAdminString(live, ["uptime_human", "uptime"]) ||
+    fmtNum(pickAdminNumber(live, ["uptime_seconds", "uptime_s"]), "s");
+  const rpm = fmtNum(
+    pickAdminNumber(live, ["rpm", "requests_per_minute", "requests_per_min"]),
+  );
+  const err5xx = fmtNum(
+    pickAdminNumber(live, ["errors_5xx", "5xx", "http_5xx"]),
+  );
+  const db = (() => {
+    const ms = pickAdminNumber(live, ["db_ping_ms", "db_ms", "database_ping_ms"]);
+    if (ms != null) return `${ms} ms`;
+    return pickAdminString(live, ["db", "database", "db_status"]);
+  })();
 
   return (
     <div>
@@ -68,22 +113,10 @@ export function OverviewView() {
       {error ? <OpsError message={error} onRetry={() => void load()} /> : null}
       <OpsStatGrid
         items={[
-          {
-            label: "Uptime",
-            value: String(live?.uptime ?? live?.uptime_human ?? "—"),
-          },
-          {
-            label: "RPM",
-            value: String(live?.rpm ?? live?.requests_per_minute ?? "—"),
-          },
-          {
-            label: "5xx",
-            value: String(live?.errors_5xx ?? live?.["5xx"] ?? "—"),
-          },
-          {
-            label: "DB",
-            value: String(live?.db_ping_ms ?? live?.db ?? "—"),
-          },
+          { label: "Uptime", value: uptime },
+          { label: "RPM", value: rpm },
+          { label: "5xx", value: err5xx },
+          { label: "DB", value: db },
         ]}
       />
       <div className="mb-4 flex items-center gap-2">
@@ -92,8 +125,14 @@ export function OverviewView() {
       </div>
       <div className="grid gap-2 sm:grid-cols-3 mb-6">
         {(["auth", "invite", "guilds"] as const).map((key) => {
-          const block = asRec(services?.[key]) ?? asRec(services?.[`${key}_status`]);
-          const status = String(block?.status ?? block?.state ?? services?.[key] ?? "—");
+          const block =
+            asRec(services?.[key]) ?? asRec(services?.[`${key}_status`]);
+          const status = pickAdminString(
+            block ?? services,
+            block
+              ? ["status", "state", "health"]
+              : [key, `${key}_status`],
+          );
           return (
             <div
               key={key}
@@ -116,22 +155,33 @@ export function OverviewView() {
         items={[
           {
             label: "Pending",
-            value: String(chloe?.pending ?? chloe?.pending_actions ?? "—"),
+            value: fmtNum(
+              pickAdminNumber(chloe, ["pending", "pending_actions", "queue"]),
+            ),
           },
           {
             label: "Users",
-            value: String(chloe?.users ?? chloe?.active_users ?? "—"),
+            value: fmtNum(
+              pickAdminNumber(chloe, ["users", "active_users", "user_count"]),
+            ),
           },
           {
             label: "Quota hits",
-            value: String(chloe?.quota_hits ?? "—"),
+            value: fmtNum(
+              pickAdminNumber(chloe, ["quota_hits", "quota_exceeded"]),
+            ),
           },
           {
             label: "Actions",
-            value: String(chloe?.actions_today ?? chloe?.actions ?? "—"),
+            value: fmtNum(
+              pickAdminNumber(chloe, ["actions_today", "actions", "action_count"]),
+            ),
           },
         ]}
       />
+      <div className="mt-4">
+        <OpsJsonBlock value={rawBundle} title="overview responses" />
+      </div>
     </div>
   );
 }

@@ -8,7 +8,6 @@ import {
   BorderGlow,
   useThemeBorderGlow,
 } from "../../../magic/border-glow";
-import { RevealStory } from "../../../news/RevealStory";
 import { RichMarkdown } from "../../../RichMarkdown";
 import { handleContentHref } from "../../../../lib/deepLinks";
 import { GuildIcon } from "../../../GuildIcon";
@@ -67,6 +66,29 @@ function BookmarkButton({ story }: { story: NewsStory }) {
   );
 }
 
+function storyBodyMarkdown(story: NewsStory): string {
+  const parts: string[] = [];
+  const preview = story.bodyPreview?.trim();
+  const dek = story.dek?.trim();
+  if (preview) parts.push(preview);
+  else if (dek) parts.push(dek);
+
+  // Extra slide lines that aren't just repeating the title/dek.
+  const seen = new Set(
+    [story.title.trim().toLowerCase(), dek?.toLowerCase(), preview?.toLowerCase()].filter(
+      Boolean,
+    ) as string[],
+  );
+  for (const slide of story.slides ?? []) {
+    const t = slide.trim();
+    if (!t) continue;
+    if (seen.has(t.toLowerCase())) continue;
+    seen.add(t.toLowerCase());
+    parts.push(t);
+  }
+  return parts.join("\n\n") || "_No details for this story yet._";
+}
+
 function StoryDetail({
   story,
   onClose,
@@ -74,19 +96,39 @@ function StoryDetail({
   story: NewsStory;
   onClose: () => void;
 }) {
+  const body = useMemo(() => storyBodyMarkdown(story), [story]);
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
   return (
-    <div className="fixed inset-0 z-100 flex items-center justify-center p-6 bg-black/70 backdrop-blur-sm">
+    <div
+      className="fixed inset-0 z-100 flex items-center justify-center p-4 sm:p-6 bg-black/70 backdrop-blur-sm"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="feed-story-title"
+      onClick={onClose}
+    >
       <div
-        className="relative w-full max-w-2xl max-h-[min(80vh,640px)] cf-panel rounded-2xl overflow-hidden border border-white/10 flex flex-col"
+        className="relative w-full max-w-2xl max-h-[min(85vh,720px)] cf-panel rounded-2xl overflow-hidden border border-white/10 flex flex-col bg-bg-elevated shadow-2xl"
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="shrink-0 flex items-center justify-between px-4 py-3 bg-black/40 border-b border-white/8">
-          <div className="min-w-0 pr-4">
+        <div className="shrink-0 flex items-start justify-between gap-3 px-4 py-3 bg-black/40 border-b border-white/8">
+          <div className="min-w-0 flex-1">
             <p className="text-[9px] uppercase tracking-wider text-primary-base font-semibold">
               {story.category}
               {story.guildName ? ` · ${story.guildName}` : ""}
+              {story.date ? ` · ${story.date}` : ""}
             </p>
-            <h2 className="font-sora text-[14px] font-semibold text-text-primary truncate">
+            <h2
+              id="feed-story-title"
+              className="font-sora text-[15px] font-semibold text-text-primary leading-snug mt-0.5"
+            >
               {story.title}
             </h2>
           </div>
@@ -95,27 +137,28 @@ function StoryDetail({
             <button
               type="button"
               onClick={onClose}
-              className="flex h-8 w-8 items-center justify-center rounded-lg border border-white/10 text-[16px] leading-none text-text-muted hover:text-white cursor-pointer"
+              className="h-8 rounded-lg border border-white/10 px-2.5 text-[10px] font-semibold uppercase tracking-wide text-text-muted hover:text-white cursor-pointer"
             >
-              ×
+              Close
             </button>
           </div>
         </div>
         {story.coverUrl ? (
-          <StoryCover story={story} className="h-40 shrink-0 border-b border-white/6" />
+          <StoryCover
+            story={story}
+            className="h-36 sm:h-44 shrink-0 border-b border-white/6"
+          />
         ) : null}
-        <div className="flex-1 min-h-0 overflow-y-auto scroll-hidden p-5 flex flex-col gap-3">
-          {story.dek ? (
+        <div className="flex-1 min-h-0 overflow-y-auto scroll-hidden p-5 flex flex-col gap-4">
+          {story.dek && story.dek !== story.bodyPreview ? (
             <p className="text-[13px] text-text-secondary leading-relaxed">
               {story.dek}
             </p>
           ) : null}
-          {story.bodyPreview ? (
-            <div className="text-[13px] text-text-primary leading-relaxed">
-              <RichMarkdown source={story.bodyPreview} />
-            </div>
-          ) : null}
-          <div className="flex flex-wrap gap-2 pt-2">
+          <div className="text-[13px] text-text-primary leading-relaxed prose-invert max-w-none [&_p]:mb-3 [&_a]:text-primary-base">
+            <RichMarkdown source={body} />
+          </div>
+          <div className="flex flex-wrap gap-2 pt-1 mt-auto">
             {story.deepLink ? (
               <button
                 type="button"
@@ -225,10 +268,10 @@ function DiscoverPage() {
       <header className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
         <div>
           <h2 className="font-sora text-[17px] font-bold text-text-primary">
-            Discover
+            Feed
           </h2>
           <p className="text-[11px] text-text-muted mt-0.5">
-            Launcher news, Minecraft updates, guild notes, and saved stories
+            Minecraft news from open networks, plus CultForge launcher stories
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-1.5">
@@ -315,7 +358,7 @@ function DiscoverPage() {
       ) : (
         <div className="cf-panel rounded-xl px-5 py-10 text-center text-[13px] text-text-muted">
           {loading
-            ? "Loading Discover…"
+            ? "Loading Feed…"
             : category === "Saved"
               ? "No saved stories yet. Bookmark one with Save."
               : "No stories in this category yet."}
@@ -394,16 +437,7 @@ function DiscoverPage() {
       )}
 
       {story ? (
-        story.slides.length > 0 ? (
-          <RevealStory
-            open
-            title={story.title}
-            slides={story.slides}
-            onClose={() => setStory(null)}
-          />
-        ) : (
-          <StoryDetail story={story} onClose={() => setStory(null)} />
-        )
+        <StoryDetail story={story} onClose={() => setStory(null)} />
       ) : null}
     </div>
   );

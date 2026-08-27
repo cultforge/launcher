@@ -419,6 +419,9 @@ export function GuildWelcome({ guild }: { guild: Guild }) {
             See all
           </button>
         </div>
+        <p className="mb-2 text-[11px] text-text-muted leading-relaxed">
+          Live play from guild worlds — every member can follow along.
+        </p>
         <ActivityFeedPanel guildId={guild.id} compact max={4} />
       </div>
 

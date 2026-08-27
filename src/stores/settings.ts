@@ -25,6 +25,12 @@ export type LauncherSettings = {
   assistantBaseUrl: string;
   /** Guild display preferences — density and optional tab visibility only. */
   guildUiPreferences: GuildUiPreferences;
+  /** Experimental: native Windows toast for unread notifications. */
+  experimentalOsToasts: boolean;
+  /** Experimental: @mention picker in chat composers. */
+  experimentalChatMentions: boolean;
+  /** Experimental: multi-account switcher UI. */
+  experimentalAccountSwitch: boolean;
 };
 
 export const DEFAULT_SETTINGS: LauncherSettings = {
@@ -40,6 +46,9 @@ export const DEFAULT_SETTINGS: LauncherSettings = {
   assistantModel: "",
   assistantBaseUrl: "https://api.openai.com/v1",
   guildUiPreferences: { ...DEFAULT_GUILD_UI_PREFERENCES },
+  experimentalOsToasts: false,
+  experimentalChatMentions: false,
+  experimentalAccountSwitch: false,
 };
 
 const SETTINGS_KEY = "launcher.settings";
@@ -97,12 +106,27 @@ function mergeSettings(raw: unknown): LauncherSettings {
         ? obj.assistantBaseUrl
         : DEFAULT_SETTINGS.assistantBaseUrl,
     guildUiPreferences: mergeGuildUiPreferences(obj.guildUiPreferences),
+    experimentalOsToasts:
+      typeof obj.experimentalOsToasts === "boolean"
+        ? obj.experimentalOsToasts
+        : DEFAULT_SETTINGS.experimentalOsToasts,
+    experimentalChatMentions:
+      typeof obj.experimentalChatMentions === "boolean"
+        ? obj.experimentalChatMentions
+        : DEFAULT_SETTINGS.experimentalChatMentions,
+    experimentalAccountSwitch:
+      typeof obj.experimentalAccountSwitch === "boolean"
+        ? obj.experimentalAccountSwitch
+        : DEFAULT_SETTINGS.experimentalAccountSwitch,
   };
 }
 
 const PERSIST_NOW_KEYS = new Set([
   "closeOnLaunch",
   "guildUiPreferences",
+  "experimentalOsToasts",
+  "experimentalChatMentions",
+  "experimentalAccountSwitch",
 ]);
 
 type SettingsStore = {

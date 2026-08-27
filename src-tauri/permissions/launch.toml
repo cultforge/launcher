@@ -83,6 +83,11 @@ identifier = "allow-restore-from-tray"
 description = "Show and focus the main window from the system tray"
 commands.allow = ["restore_from_tray"]
 
+[[permission]]
+identifier = "allow-show-os-notification"
+description = "Show a native OS toast notification"
+commands.allow = ["show_os_notification"]
+
 [[set]]
 identifier = "minecraft-launch"
 description = "Resolve Java and launch/stop Minecraft"
@@ -104,4 +109,5 @@ permissions = [
   "allow-write-crash-report",
   "allow-minimize-to-tray",
   "allow-restore-from-tray",
+  "allow-show-os-notification",
 ]

@@ -15,7 +15,7 @@ import {
 import { eventTypeLabel } from "../../../data/guilds";
 import { CoverImage } from "../../CoverImage";
 import { ContentLinks, RichMarkdown } from "../../RichMarkdown";
-import { handleContentHref } from "../../../lib/deepLinks";
+import { CopyButton, ShareDeepLinkButton } from "../../CopyButton";
 
 export function EventsPanel() {
   const guildId = useGuildStore((state) => state.activeGuildId);
@@ -129,13 +129,19 @@ export function EventsPanel() {
                     : "RSVP"}
               </button>
               {focused.deepLink ? (
-                <button
-                  type="button"
-                  onClick={() => handleContentHref(focused.deepLink)}
-                  className="rounded-lg border border-white/10 px-3 py-2 text-[10px] text-text-muted cursor-pointer"
-                >
-                  Copy deep link
-                </button>
+                <CopyButton
+                  text={focused.deepLink}
+                  label="Copy deep link"
+                  successMessage="Deep link copied"
+                />
+              ) : guildId ? (
+                <ShareDeepLinkButton
+                  link={{
+                    kind: "guild-events",
+                    guildId,
+                    eventId: focused.id,
+                  }}
+                />
               ) : null}
             </div>
           </div>

@@ -12,8 +12,8 @@ import {
   OpsError,
   OpsInput,
   OpsPageHeader,
+  OpsSelect,
   OpsTable,
-  OpsToolbar,
   type OpsColumn,
 } from "../ui/ops";
 
@@ -29,8 +29,11 @@ export function RateLimitsView() {
   const [busy, setBusy] = useState(false);
   const [deleteId, setDeleteId] = useState<string | null>(null);
   const [key, setKey] = useState("");
-  const [limit, setLimit] = useState("60");
-  const [windowSec, setWindowSec] = useState("60");
+  const [scope, setScope] = useState("user");
+  const [times, setTimes] = useState("60");
+  const [seconds, setSeconds] = useState("60");
+  const [ttl, setTtl] = useState("3600");
+  const [reason, setReason] = useState("");
 
   const load = useCallback(async () => {
     setError(null);
@@ -59,12 +62,16 @@ export function RateLimitsView() {
     setBusy(true);
     try {
       await AdminClient.createRateLimit({
+        scope,
         key,
-        limit: Number(limit),
-        window_seconds: Number(windowSec),
+        times: Number(times),
+        seconds: Number(seconds),
+        ttl_seconds: Number(ttl),
+        ...(reason.trim() ? { reason: reason.trim() } : {}),
       });
       toast.success("Rate limit created");
       setKey("");
+      setReason("");
       await load();
     } catch (err) {
       if (isAdminCapabilityError(err)) handleUnauthorized();
@@ -86,14 +93,24 @@ export function RateLimitsView() {
     },
     {
       key: "limit",
-      header: "Limit",
-      render: (r) => String(r.limit ?? r.max ?? "—"),
+      header: "Max requests",
+      render: (r) => String(r.times ?? r.limit ?? r.max ?? "—"),
     },
     {
       key: "window",
-      header: "Window",
+      header: "Every (sec)",
       render: (r) =>
-        String(r.window_seconds ?? r.window ?? r.period ?? "—"),
+        String(r.seconds ?? r.window_seconds ?? r.window ?? r.period ?? "—"),
+    },
+    {
+      key: "ttl",
+      header: "TTL (sec)",
+      render: (r) => String(r.ttl_seconds ?? r.ttl ?? "—"),
+    },
+    {
+      key: "reason",
+      header: "Why",
+      render: (r) => String(r.reason ?? "—"),
     },
     {
       key: "act",
@@ -118,38 +135,85 @@ export function RateLimitsView() {
     <div>
       <OpsPageHeader
         title="Rate limits"
-        subtitle="List, create, and delete platform rate-limit entries."
+        subtitle="Cap how often a user, IP, or path can hit the API. Think: max requests every N seconds."
         actions={
           <OpsButton onClick={() => void load()}>Reload</OpsButton>
         }
       />
-      <OpsToolbar>
-        <OpsInput
-          placeholder="Key"
-          value={key}
-          onChange={(e) => setKey(e.target.value)}
-          className="w-40 font-mono"
-        />
-        <OpsInput
-          placeholder="Limit"
-          value={limit}
-          onChange={(e) => setLimit(e.target.value)}
-          className="w-20"
-        />
-        <OpsInput
-          placeholder="Window sec"
-          value={windowSec}
-          onChange={(e) => setWindowSec(e.target.value)}
-          className="w-24"
-        />
-        <OpsButton
-          variant="primary"
-          disabled={!capabilityActive || busy || !key}
-          onClick={() => void create()}
-        >
-          Create
-        </OpsButton>
-      </OpsToolbar>
+      <div className="mb-4 rounded-xl border border-white/10 bg-black/25 p-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+        <label className="flex flex-col gap-1 text-[10px] text-text-muted">
+          Scope
+          <OpsSelect
+            value={scope}
+            onChange={(e) => setScope(e.target.value)}
+            aria-label="Rate limit scope"
+          >
+            <option value="user">User</option>
+            <option value="ip">IP</option>
+            <option value="path">Path</option>
+            <option value="global">Global</option>
+          </OpsSelect>
+        </label>
+        <label className="flex flex-col gap-1 text-[10px] text-text-muted">
+          Key (who / what)
+          <OpsInput
+            placeholder={
+              scope === "user"
+                ? "user id"
+                : scope === "ip"
+                  ? "ip address"
+                  : scope === "path"
+                    ? "/v1/…"
+                    : "optional"
+            }
+            value={key}
+            onChange={(e) => setKey(e.target.value)}
+            className="w-full font-mono"
+          />
+        </label>
+        <label className="flex flex-col gap-1 text-[10px] text-text-muted">
+          Max requests
+          <OpsInput
+            value={times}
+            onChange={(e) => setTimes(e.target.value)}
+            className="w-full"
+          />
+        </label>
+        <label className="flex flex-col gap-1 text-[10px] text-text-muted">
+          Every N seconds
+          <OpsInput
+            value={seconds}
+            onChange={(e) => setSeconds(e.target.value)}
+            className="w-full"
+          />
+        </label>
+        <label className="flex flex-col gap-1 text-[10px] text-text-muted">
+          Expires after (TTL sec)
+          <OpsInput
+            value={ttl}
+            onChange={(e) => setTtl(e.target.value)}
+            className="w-full"
+          />
+        </label>
+        <label className="flex flex-col gap-1 text-[10px] text-text-muted">
+          Reason (optional)
+          <OpsInput
+            placeholder="Why this limit exists"
+            value={reason}
+            onChange={(e) => setReason(e.target.value)}
+            className="w-full"
+          />
+        </label>
+        <div className="sm:col-span-2 lg:col-span-3">
+          <OpsButton
+            variant="primary"
+            disabled={!capabilityActive || busy || !key}
+            onClick={() => void create()}
+          >
+            Create limit
+          </OpsButton>
+        </div>
+      </div>
       {error ? <OpsError message={error} onRetry={() => void load()} /> : null}
       <OpsTable
         columns={columns}

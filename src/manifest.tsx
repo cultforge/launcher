@@ -42,6 +42,16 @@ const homeSideNav: SMenu[] = [
 
       {
 
+        label: "Feed",
+
+        icon: AppIcons.Newspaper,
+
+        primaryTab: "Home",
+
+      },
+
+      {
+
         label: "Discover",
 
         icon: AppIcons.Compass,
@@ -172,5 +182,5 @@ export const DefaultConfig: Object = {};
 
 
 
-export const APP_VERSION = "2.4.2";
+export const APP_VERSION = "2.4.3";
 

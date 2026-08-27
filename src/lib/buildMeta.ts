@@ -47,6 +47,7 @@ function fromNativeConfig(raw: {
   fullscreen: boolean;
   closeOnLaunch: boolean;
   dedicatedGpu: boolean;
+  cpuPin?: boolean;
   playtimeMinutes?: number;
   lastPlayedMs?: number;
 }): PersistedBuildConfig {
@@ -59,6 +60,7 @@ function fromNativeConfig(raw: {
     fullscreen: raw.fullscreen,
     closeOnLaunch: raw.closeOnLaunch,
     dedicatedGpu: raw.dedicatedGpu,
+    cpuPin: raw.cpuPin === true,
     playtimeMinutes:
       typeof raw.playtimeMinutes === "number" ? raw.playtimeMinutes : 0,
     lastPlayedMs: typeof raw.lastPlayedMs === "number" ? raw.lastPlayedMs : 0,
@@ -86,6 +88,7 @@ export function toUiConfig(cfg: PersistedBuildConfig): BuildConfig {
     fullscreen: cfg.fullscreen,
     closeOnLaunch: cfg.closeOnLaunch,
     dedicatedGpu: cfg.dedicatedGpu,
+    cpuPin: cfg.cpuPin === true,
   };
 }
 
@@ -140,6 +143,7 @@ export async function writeBuildConfig(
       fullscreen: config.fullscreen,
       closeOnLaunch: config.closeOnLaunch,
       dedicatedGpu: config.dedicatedGpu,
+      cpuPin: config.cpuPin === true,
       playtimeMinutes,
       lastPlayedMs,
     },

@@ -35,7 +35,7 @@ from ctfgsdk.schema import (
     UserHandleUpdateRequest,
 )
 
-APP_VERSION = "2.4.2"
+APP_VERSION = "2.4.3"
 ws_connections: set[WebSocket] = set()
 
 LOG_LEVELS = {"DEBUG", "INFO", "SUCCESS", "WARNING", "ERROR", "CRITICAL", "EXCEPTION"}
@@ -2932,6 +2932,83 @@ async def get_session(request: Request) -> JSONResponse:
             "status": True,
             "has_session": bool(token),
         }
+    )
+
+
+@app.get("/auth/accounts")
+async def list_local_accounts() -> JSONResponse:
+    """List stashed CultForge accounts on this device (no JWTs)."""
+    rows = keyring_store.get_account_roster()
+    return JSONResponse(content={"status": True, "accounts": rows})
+
+
+@app.post("/auth/accounts/stash")
+async def stash_local_account(request: Request) -> JSONResponse:
+    """Stash the active session under the given user id for later switching."""
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    if not isinstance(body, dict):
+        body = {}
+    user_id = body.get("user_id") or body.get("id")
+    name = body.get("name")
+    avatar_url = body.get("avatar_url")
+    if not isinstance(user_id, str) or not user_id.strip():
+        return JSONResponse(
+            status_code=400,
+            content={"status": False, "message": "user_id required"},
+        )
+    ok = keyring_store.stash_account(
+        user_id.strip(),
+        name=name if isinstance(name, str) else None,
+        avatar_url=avatar_url if isinstance(avatar_url, str) else None,
+    )
+    if not ok:
+        return JSONResponse(
+            status_code=400,
+            content={"status": False, "message": "No active session to stash"},
+        )
+    return JSONResponse(
+        content={"status": True, "accounts": keyring_store.get_account_roster()}
+    )
+
+
+@app.post("/auth/accounts/activate")
+async def activate_local_account(request: Request) -> JSONResponse:
+    """Switch active sKEY to a previously stashed account."""
+    sdk: cliX.Client | None = request.app.state.sdk
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    if not isinstance(body, dict):
+        body = {}
+    user_id = body.get("user_id") or body.get("id")
+    if not isinstance(user_id, str) or not user_id.strip():
+        return JSONResponse(
+            status_code=400,
+            content={"status": False, "message": "user_id required"},
+        )
+    token = keyring_store.activate_account(user_id.strip())
+    if not token:
+        return JSONResponse(
+            status_code=404,
+            content={
+                "status": False,
+                "message": "Account not stashed on this device",
+            },
+        )
+    set_session_key(token, sdk=sdk)
+    await broadcast_ws({"type": "session_ready", "status": True})
+    return JSONResponse(content={"status": True, "has_session": True})
+
+
+@app.delete("/auth/accounts/{user_id}")
+async def forget_local_account(user_id: str) -> JSONResponse:
+    keyring_store.forget_account(user_id)
+    return JSONResponse(
+        content={"status": True, "accounts": keyring_store.get_account_roster()}
     )
 
 

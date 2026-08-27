@@ -39,19 +39,19 @@ const PC_ACTIONS: QuickAction[] = [
   {
     action: "node.status",
     label: "Check connection",
-    description: "See if this PC can reach CultForge",
+    description: "Can this PC reach CultForge?",
     icon: Wifi,
   },
   {
     action: "node.metrics",
     label: "PC performance",
-    description: "CPU and memory on this computer",
+    description: "CPU and memory",
     icon: Cpu,
   },
   {
     action: "server.list",
     label: "List worlds",
-    description: "Worlds installed on this PC",
+    description: "Installed on this PC",
     icon: Server,
   },
 ];
@@ -59,15 +59,15 @@ const PC_ACTIONS: QuickAction[] = [
 const SERVER_ACTIONS: QuickAction[] = [
   {
     action: "server.status",
-    label: "Server status",
-    description: "Is the world running right now?",
+    label: "World status",
+    description: "Is this world running?",
     icon: Activity,
     needsServer: true,
   },
   {
     action: "backup.create",
     label: "Create backup",
-    description: "Save a snapshot of this world",
+    description: "Snapshot this world",
     icon: Archive,
     needsServer: true,
     risk: true,
@@ -158,6 +158,65 @@ function humanizeResult(action: string, result: unknown): ReactNode {
   );
 }
 
+function ActionGrid({
+  items,
+  busy,
+  localServerId,
+  onRun,
+}: {
+  items: QuickAction[];
+  busy: string | null;
+  localServerId?: string | null;
+  onRun: (action: string) => void;
+}) {
+  return (
+    <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
+      {items.map((item) => {
+        const disabled = busy !== null || (item.needsServer && !localServerId);
+        const Icon = item.icon;
+        return (
+          <button
+            key={item.action}
+            type="button"
+            disabled={disabled}
+            title={
+              item.needsServer && !localServerId
+                ? "Select a world first"
+                : undefined
+            }
+            onClick={() => onRun(item.action)}
+            className={cn(
+              "rounded-lg border px-2.5 py-2 text-left cursor-pointer transition-colors disabled:opacity-40",
+              item.risk
+                ? "border-state-error/20 bg-state-error/5 hover:bg-state-error/10"
+                : "border-white/8 bg-black/15 hover:bg-white/4",
+            )}
+          >
+            <div className="flex items-start gap-2">
+              <Icon
+                size={14}
+                className={
+                  item.risk
+                    ? "text-state-error mt-0.5 shrink-0"
+                    : "text-primary-base mt-0.5 shrink-0"
+                }
+              />
+              <div className="min-w-0">
+                <p className="text-[11px] font-semibold text-text-primary">
+                  {busy === item.action ? "Working…" : item.label}
+                </p>
+                <p className="text-[10px] text-text-muted leading-snug">
+                  {item.description}
+                </p>
+              </div>
+            </div>
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
 export function AgentAdvancedPanel({
   node,
   localServerId,
@@ -174,7 +233,7 @@ export function AgentAdvancedPanel({
   const refreshHistory = async () => {
     try {
       const rows = await listCultAgentCommands(node.id);
-      setHistory(rows.slice(0, 8));
+      setHistory(rows.slice(0, 6));
     } catch {
       /* optional */
     }
@@ -262,82 +321,60 @@ export function AgentAdvancedPanel({
     }
   };
 
-  const actions = [...PC_ACTIONS, ...SERVER_ACTIONS];
-
   return (
-    <div className="flex flex-col gap-4">
+    <div className="flex flex-col gap-3 max-w-xl">
       <div>
         <h4 className="text-[11px] font-semibold uppercase tracking-wider text-text-muted">
-          Advanced tools
+          Advanced
         </h4>
-        <p className="mt-1 text-[12px] text-text-secondary leading-relaxed">
-          Extra checks and maintenance. Normal play uses Start / Stop on the
-          Server tab — you rarely need these.
+        <p className="mt-0.5 text-[11px] text-text-muted leading-relaxed">
+          Diagnostics and backups. Day-to-day play uses Server / Options /
+          Console.
         </p>
       </div>
 
       {!online ? (
-        <p className="rounded-lg border border-state-warning/30 bg-state-warning/8 px-3 py-2 text-[12px] text-state-warning">
-          PC is offline. Commands queue until CultAgent reconnects.
+        <p className="rounded-lg border border-state-warning/30 bg-state-warning/8 px-3 py-2 text-[11px] text-state-warning">
+          PC offline — commands queue until CultAgent reconnects.
         </p>
       ) : null}
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-        {actions.map((item) => {
-          const disabled =
-            busy !== null || (item.needsServer && !localServerId);
-          const Icon = item.icon;
-          return (
-            <button
-              key={item.action}
-              type="button"
-              disabled={disabled}
-              title={
-                item.needsServer && !localServerId
-                  ? "Select a world first"
-                  : undefined
-              }
-              onClick={() => void run(item.action)}
-              className={cn(
-                "rounded-xl border px-3 py-3 text-left cursor-pointer transition-colors disabled:opacity-40",
-                item.risk
-                  ? "border-state-error/20 bg-state-error/5 hover:bg-state-error/10"
-                  : "border-white/10 bg-black/20 hover:bg-white/4",
-              )}
-            >
-              <div className="flex items-start gap-2.5">
-                <Icon
-                  size={16}
-                  className={
-                    item.risk ? "text-state-error mt-0.5" : "text-primary-base mt-0.5"
-                  }
-                />
-                <div className="min-w-0">
-                  <p className="text-[12px] font-semibold text-text-primary">
-                    {busy === item.action ? "Working…" : item.label}
-                  </p>
-                  <p className="text-[10px] text-text-muted mt-0.5">
-                    {item.description}
-                  </p>
-                </div>
-              </div>
-            </button>
-          );
-        })}
-      </div>
+      <section className="flex flex-col gap-1.5">
+        <p className="text-[10px] font-semibold uppercase tracking-wider text-text-disabled">
+          This PC
+        </p>
+        <ActionGrid
+          items={PC_ACTIONS}
+          busy={busy}
+          localServerId={localServerId}
+          onRun={(a) => void run(a)}
+        />
+      </section>
+
+      <section className="flex flex-col gap-1.5">
+        <p className="text-[10px] font-semibold uppercase tracking-wider text-text-disabled">
+          Selected world
+        </p>
+        <ActionGrid
+          items={SERVER_ACTIONS}
+          busy={busy}
+          localServerId={localServerId}
+          onRun={(a) => void run(a)}
+        />
+      </section>
 
       {lastAction && lastResult ? (
-        <div className="rounded-xl border border-white/10 bg-black/25 px-4 py-3">
+        <div className="rounded-lg border border-white/8 bg-black/20 px-3 py-2.5">
           <p className="text-[10px] uppercase tracking-wider text-text-disabled">
-            {friendlyAction(lastAction)} result
+            {friendlyAction(lastAction)}
           </p>
-          <div className="mt-2">{lastResult}</div>
+          <div className="mt-1.5">{lastResult}</div>
           {pendingConfirm ? (
             <button
               type="button"
               disabled={busy !== null}
               onClick={() => void onConfirm()}
-              className="mt-3 cf-btn-primary rounded-lg px-3 py-1.5 text-[11px] font-semibold cursor-pointer"
+              className="mt-2 cf-btn-primary rounded-lg px-3 py-1.5 text-[11px] font-semibold cursor-pointer"
             >
               Confirm {friendlyAction(pendingConfirm.action)}
             </button>
@@ -345,36 +382,39 @@ export function AgentAdvancedPanel({
         </div>
       ) : null}
 
-      {history.length > 0 ? (
-        <div>
-          <div className="flex items-center justify-between gap-2 mb-2">
-            <p className="text-[10px] uppercase tracking-wider text-text-disabled">
-              Recent activity
-            </p>
-            <button
-              type="button"
-              onClick={() => void refreshHistory()}
-              className="inline-flex items-center gap-1 text-[10px] text-text-muted hover:text-text-primary cursor-pointer"
-            >
-              <RefreshCw size={11} />
-              Refresh
-            </button>
-          </div>
-          <ul className="flex flex-col gap-1.5">
+      <details className="rounded-lg border border-white/8 bg-black/15 px-3 py-2">
+        <summary className="cursor-pointer text-[11px] font-semibold text-text-secondary select-none">
+          Recent activity
+          {history.length ? ` (${history.length})` : ""}
+        </summary>
+        <div className="mt-2 flex items-center justify-end">
+          <button
+            type="button"
+            onClick={() => void refreshHistory()}
+            className="inline-flex items-center gap-1 text-[10px] text-text-muted hover:text-text-primary cursor-pointer"
+          >
+            <RefreshCw size={11} />
+            Refresh
+          </button>
+        </div>
+        {history.length === 0 ? (
+          <p className="mt-1 text-[11px] text-text-muted">No recent commands.</p>
+        ) : (
+          <ul className="mt-1.5 flex flex-col gap-1">
             {history.map((c) => (
               <li
                 key={c.id}
-                className="flex items-center justify-between gap-2 rounded-lg border border-white/6 bg-black/15 px-3 py-2 text-[11px]"
+                className="flex items-center justify-between gap-2 rounded-md px-2 py-1.5 text-[11px] bg-black/20"
               >
                 <span className="text-text-secondary truncate">
                   {friendlyAction(c.action)}
                 </span>
                 <span
                   className={cn(
-                    "shrink-0 rounded-full px-2 py-0.5 text-[9px] font-semibold",
+                    "shrink-0 text-[9px] font-semibold",
                     String(c.status).toLowerCase().includes("fail")
-                      ? "bg-state-error/15 text-state-error"
-                      : "bg-white/8 text-text-muted",
+                      ? "text-state-error"
+                      : "text-text-muted",
                   )}
                 >
                   {friendlyStatus(c.status)}
@@ -382,22 +422,17 @@ export function AgentAdvancedPanel({
               </li>
             ))}
           </ul>
-        </div>
-      ) : null}
+        )}
+      </details>
 
-      <div className="rounded-xl border border-dashed border-white/10 px-4 py-3 flex flex-wrap items-center gap-3">
-        <div className="min-w-0 flex-1">
-          <p className="text-[11px] font-semibold text-text-secondary">
-            PC identifier
-          </p>
-          <p className="font-mono text-[10px] text-text-muted truncate">
-            {truncateMiddle(node.id)}
-          </p>
-        </div>
+      <div className="flex flex-wrap items-center gap-2 pt-1 border-t border-white/6">
+        <p className="font-mono text-[10px] text-text-disabled truncate flex-1 min-w-0">
+          {truncateMiddle(node.id)}
+        </p>
         <button
           type="button"
           onClick={() => void copyText(node.id, "PC id copied")}
-          className="rounded-lg border border-white/12 px-3 py-1.5 text-[10px] cursor-pointer"
+          className="rounded-md border border-white/10 px-2 py-1 text-[10px] text-text-muted cursor-pointer hover:text-text-secondary"
         >
           Copy ID
         </button>
@@ -406,9 +441,9 @@ export function AgentAdvancedPanel({
           onClick={() =>
             void openLocalPanelIfRunning(localServerId ?? undefined)
           }
-          className="rounded-lg border border-white/12 px-3 py-1.5 text-[10px] cursor-pointer"
+          className="rounded-md border border-white/10 px-2 py-1 text-[10px] text-text-muted cursor-pointer hover:text-text-secondary"
         >
-          Open local panel
+          Local panel
         </button>
       </div>
     </div>

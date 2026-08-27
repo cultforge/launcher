@@ -121,6 +121,46 @@
           }
         }
       }
+    },
+    "2.4.3": {
+      "companions": {
+        "scanner": {
+          "repo": "cultforge/mc-scanner",
+          "status": "active",
+          "tag": "v0.1.0",
+          "min_tag": "v0.1.0",
+          "max_tag": "v0.1.0",
+          "assets": {
+            "windows-x86_64": "scanner.exe",
+            "linux-x86_64": "scanner-linux-x86_64",
+            "macos-arm64": "scanner-macos-arm64",
+            "macos-x86_64": "scanner-macos-x86_64"
+          }
+        },
+        "client": {
+          "repo": "cultforge/launcher",
+          "status": "active",
+          "tag": "client-v0.1.0",
+          "min_tag": "client-v0.1.0",
+          "max_tag": "client-v0.1.0",
+          "assets": {
+            "windows-x86_64": "client.exe",
+            "linux-x86_64": "client-linux-x86_64",
+            "macos-arm64": "client-macos-arm64",
+            "macos-x86_64": "client-macos-x86_64"
+          }
+        },
+        "ctfgbroker": {
+          "repo": "cultforge/launcher",
+          "status": "optional",
+          "tag": "broker-v0.1.0",
+          "min_tag": "broker-v0.1.0",
+          "max_tag": "broker-v0.1.0",
+          "assets": {
+            "windows-x86_64": "ctfgbroker.exe"
+          }
+        }
+      }
     }
   }
 }

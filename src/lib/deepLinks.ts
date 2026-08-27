@@ -61,13 +61,14 @@ export function parseCultforgeDeepLink(
       "downloads",
       "friends",
       "discover",
+      "feed",
       "updates",
       "agents",
     ].includes(launcherTarget)
   ) {
     return {
       kind: "launcher",
-      target: launcherTarget,
+      target: launcherTarget === "feed" ? "discover" : launcherTarget,
       section: parts[1]?.toLowerCase(),
     };
   }
@@ -96,6 +97,84 @@ export function parseCultforgeDeepLink(
 
 export function isCultforgeDeepLink(href: string | null | undefined): boolean {
   return Boolean(parseCultforgeDeepLink(href));
+}
+
+function enc(part: string): string {
+  return encodeURIComponent(part.trim());
+}
+
+/** Build a cultforge:// deep link for Share / copy flows. */
+export function buildCultforgeDeepLink(link: CultforgeDeepLink): string {
+  switch (link.kind) {
+    case "guild":
+      return `cultforge://guild/${enc(link.guildId)}`;
+    case "guild-news":
+      return `cultforge://guild/${enc(link.guildId)}/news/${enc(link.newsId)}`;
+    case "guild-events":
+      return `cultforge://guild/${enc(link.guildId)}/events/${enc(link.eventId)}`;
+    case "guild-channel":
+      return `cultforge://guild/${enc(link.guildId)}/channel/${enc(link.channelId)}`;
+    case "dm":
+      return `cultforge://dm/${enc(link.userId)}`;
+    case "profile":
+      return `cultforge://profile/${enc(link.userId)}`;
+    case "agent-link":
+      return `cultforge://agent/link/${enc(link.code)}`;
+    case "launcher": {
+      const base = `cultforge://${enc(link.target)}`;
+      return link.section ? `${base}/${enc(link.section)}` : base;
+    }
+    default:
+      return "";
+  }
+}
+
+/**
+ * Public https link for the same target (browser / Discord).
+ * Guild surfaces → guilds.cultforge.com; invites/agent codes → invite.cultforge.com.
+ * Returns null when there is no public web equivalent (e.g. DM, launcher path).
+ */
+export function buildCultforgeWebLink(link: CultforgeDeepLink): string | null {
+  switch (link.kind) {
+    case "guild":
+      return `https://guilds.cultforge.com/${enc(link.guildId)}`;
+    case "guild-news":
+      return `https://guilds.cultforge.com/${enc(link.guildId)}/news/${enc(link.newsId)}`;
+    case "guild-events":
+      return `https://guilds.cultforge.com/${enc(link.guildId)}/events/${enc(link.eventId)}`;
+    case "guild-channel":
+      return `https://guilds.cultforge.com/${enc(link.guildId)}/channels/${enc(link.channelId)}`;
+    case "profile":
+      return `https://guilds.cultforge.com/players/${enc(link.userId)}`;
+    case "agent-link":
+      return `https://invite.cultforge.com/agent/${enc(link.code)}`;
+    case "dm":
+    case "launcher":
+      return null;
+    default:
+      return null;
+  }
+}
+
+/** Build + copy helper for Share buttons. */
+export async function shareCultforgeDeepLink(
+  link: CultforgeDeepLink,
+  successMessage = "Deep link copied",
+): Promise<boolean> {
+  const { copyText } = await import("./copyText");
+  const href = buildCultforgeDeepLink(link);
+  if (!href) return false;
+  return copyText(href, successMessage);
+}
+
+export async function shareCultforgeWebLink(
+  link: CultforgeDeepLink,
+  successMessage = "Web link copied",
+): Promise<boolean> {
+  const { copyText } = await import("./copyText");
+  const href = buildCultforgeWebLink(link);
+  if (!href) return false;
+  return copyText(href, successMessage);
 }
 
 /** Navigate the launcher shell for a cultforge:// deep link. */
@@ -178,10 +257,14 @@ export function navigateCultforgeDeepLink(href: string): boolean {
         }
         return true;
       }
-      if (target === "discord" || target === "downloads" || target === "friends" || target === "discover" || target === "updates" || target === "home") {
+      if (target === "discord" || target === "downloads" || target === "friends" || target === "discover" || target === "feed" || target === "updates" || target === "home") {
         nav.setPrimaryTab("Home" as PrimaryTab);
         nav.setSideItem(
-          target === "home" ? HOME_BUILDS_SIDE : target.charAt(0).toUpperCase() + target.slice(1),
+          target === "home"
+            ? HOME_BUILDS_SIDE
+            : target === "discover" || target === "feed"
+              ? "Feed"
+              : target.charAt(0).toUpperCase() + target.slice(1),
         );
         return true;
       }

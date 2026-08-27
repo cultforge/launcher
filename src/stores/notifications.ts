@@ -11,6 +11,10 @@ import {
   type RemoteNotification,
 } from "../lib/cultApi";
 import { logger } from "../lib/logger";
+import {
+  rememberNotificationsToasted,
+  toastNewNotifications,
+} from "../lib/osToasts";
 
 type NotificationsStore = {
   hydrated: boolean;
@@ -57,6 +61,7 @@ export const useNotificationsStore = create<NotificationsStore>((set, get) => ({
         items: remotes.map(alertFromNotification),
         unreadCount: unreadFrom(remotes),
       });
+      void toastNewNotifications(remotes);
     } catch (err) {
       logger.warn(
         `Notifications refresh failed: ${
@@ -73,7 +78,10 @@ export const useNotificationsStore = create<NotificationsStore>((set, get) => ({
   },
   markRead: (id) => {
     const { remotes } = get();
-    if (!remotes.some((n) => n.id === id && !n.is_read)) return;
+    if (!remotes.some((n) => n.id === id && !n.is_read)) {
+      void rememberNotificationsToasted([id]);
+      return;
+    }
     const next = remotes.map((n) =>
       n.id === id ? { ...n, is_read: true } : n,
     );
@@ -82,6 +90,7 @@ export const useNotificationsStore = create<NotificationsStore>((set, get) => ({
       items: next.map(alertFromNotification),
       unreadCount: unreadFrom(next),
     });
+    void rememberNotificationsToasted([id]);
     void markNotificationRead(id).catch((err) => {
       logger.warn(
         `markNotificationRead failed: ${
@@ -92,12 +101,14 @@ export const useNotificationsStore = create<NotificationsStore>((set, get) => ({
   },
   markAllRead: () => {
     const { remotes } = get();
+    const ids = remotes.map((n) => n.id);
     const next = remotes.map((n) => ({ ...n, is_read: true }));
     set({
       remotes: next,
       items: next.map(alertFromNotification),
       unreadCount: 0,
     });
+    void rememberNotificationsToasted(ids);
     void markAllNotificationsRead().catch((err) => {
       logger.warn(
         `markAllNotificationsRead failed: ${

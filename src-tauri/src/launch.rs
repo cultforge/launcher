@@ -15,6 +15,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use tauri::{AppHandle, Emitter, Manager};
 
 use crate::scanner::default_minecraft_root;
+use crate::cpu_pin;
 
 static GAME_CHILD: Lazy<Mutex<Option<GameProcess>>> = Lazy::new(|| Mutex::new(None));
 static WATCHER_ACTIVE: AtomicBool = AtomicBool::new(false);
@@ -76,6 +77,8 @@ pub struct LaunchMinecraftArgs {
     pub width: Option<u32>,
     pub height: Option<u32>,
     pub dedicated_gpu: Option<bool>,
+    /// Experimental: pin Minecraft to a dedicated core + high priority.
+    pub cpu_pin: Option<bool>,
     pub wrapper: Option<String>,
     /// Guild / personal servers to upsert into instance `servers.dat`.
     pub server_list: Option<Vec<LaunchServerEntry>>,
@@ -810,6 +813,7 @@ pub fn stop_minecraft() -> Result<(), String> {
         let _ = proc.child.kill();
         let _ = proc.child.wait();
     }
+    cpu_pin::restore_cpu_affinities();
     Ok(())
 }
 
@@ -855,6 +859,7 @@ fn spawn_exit_watcher(app: AppHandle) {
                 }
             };
             if let Some(event) = finished {
+                cpu_pin::restore_cpu_affinities();
                 let _ = app.emit("minecraft-exit", &event);
                 WATCHER_ACTIVE.store(false, Ordering::SeqCst);
                 return;
@@ -1306,6 +1311,7 @@ pub fn launch_minecraft(app: AppHandle, args: LaunchMinecraftArgs) -> Result<Lau
             writeln!(log, "legacyClassPath=true").ok();
         }
         writeln!(log, "dedicatedGpu={}", args.dedicated_gpu.unwrap_or(false)).ok();
+        writeln!(log, "cpuPin={}", args.cpu_pin.unwrap_or(false)).ok();
         writeln!(log, "wrapper={}", args.wrapper.as_deref().unwrap_or("")).ok();
         writeln!(log, "--- jvm ---").ok();
         for a in &jvm_args {
@@ -1396,6 +1402,12 @@ pub fn launch_minecraft(app: AppHandle, args: LaunchMinecraftArgs) -> Result<Lau
         started_ms: Some(now_ms()),
         game_dir: Some(game_dir_s.clone()),
     };
+
+    if args.cpu_pin.unwrap_or(false) {
+        if let Err(e) = cpu_pin::apply_cpu_pin(child.id()) {
+            eprintln!("CultForge CPU pin: {e}");
+        }
+    }
 
     *GAME_CHILD.lock().unwrap() = Some(GameProcess {
         child,

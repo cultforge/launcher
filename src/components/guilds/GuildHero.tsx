@@ -16,6 +16,7 @@ import {
 import { useGuildModalsStore } from "../../stores/guildModals";
 import { useNow } from "../../lib/clock";
 import { hallPeriodCopy } from "../../lib/hallCopy";
+import { ShareDeepLinkButton } from "../CopyButton";
 
 function HeroQuickAction({
   label,
@@ -200,6 +201,11 @@ export function GuildHero({ guild }: { guild: Guild }) {
               onClick={() => setHubTab("Discord")}
             />
           ) : null}
+          <ShareDeepLinkButton
+            link={{ kind: "guild", guildId: guild.id }}
+            label="Share"
+            className="border-white/14 bg-black/25 px-3 py-1.5 text-[12px] font-semibold text-white/85 hover:border-white/22 hover:bg-black/40 hover:text-white"
+          />
         </div>
       </div>
     </section>

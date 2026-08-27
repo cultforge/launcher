@@ -21,6 +21,7 @@ import { joinedGuilds } from "../../../../data/guilds";
 import type { UserPersonalServerRecord } from "../../../../types/catalog";
 import { Icon } from "../../../ico";
 import { AppIcons } from "../../../icons";
+import { CopyButton } from "../../../CopyButton";
 
 function ServerCard({
   server,
@@ -97,17 +98,12 @@ function ServerCard({
         )}
       </div>
       <div className="flex gap-1.5 mt-1">
-        <button
-          type="button"
-          onClick={(e) => {
-            e.stopPropagation();
-            void navigator.clipboard.writeText(`${join.address}:${join.port}`);
-            toast.success("Address copied");
-          }}
-          className="rounded-md border border-white/12 px-2 py-1 text-[9px] text-text-secondary cursor-pointer hover:bg-white/5"
-        >
-          Copy address
-        </button>
+        <CopyButton
+          text={`${join.address}:${join.port}`}
+          label="Copy address"
+          successMessage="Address copied"
+          className="rounded-md px-2 py-1 text-[9px]"
+        />
         <button
           type="button"
           onClick={(e) => {

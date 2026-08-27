@@ -8,6 +8,7 @@ import { Icon } from "../ico";
 import { AppIcons } from "../icons";
 import { GuildIcon } from "../GuildIcon";
 import { cn } from "../../lib/cn";
+import { openNotificationTarget } from "../../lib/openNotificationTarget";
 
 const GROUPS: AlertKind[] = ["Updates", "Social", "System"];
 
@@ -146,7 +147,11 @@ export function NotificationDrawer({
                           >
                             <button
                               type="button"
-                              onClick={() => markRead(a.id)}
+                              onClick={() => {
+                                markRead(a.id);
+                                void openNotificationTarget(remote ?? null);
+                                onOpenChange(false);
+                              }}
                               className="flex flex-1 min-w-0 gap-3 text-left hover:bg-white/4 rounded-lg cursor-pointer"
                             >
                               <div

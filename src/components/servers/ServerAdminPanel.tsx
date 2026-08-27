@@ -67,6 +67,7 @@ import { EntityImage } from "../EntityImage";
 import { AgentNodePicker } from "./agent/AgentNodePicker";
 import { ServerControlPanel } from "./agent/ServerControlPanel";
 import { TelemetryCharts } from "./agent/TelemetryCharts";
+import { ActivityFeedPanel } from "../guilds/ActivityFeedPanel";
 import { toast } from "sonner";
 import {
   localServerIdForCloudServer,
@@ -89,6 +90,7 @@ const NAV_SECTIONS: NavSection[] = [
     items: [
       { id: "overview", label: "Overview", icon: Server },
       { id: "agent", label: "Control panel", icon: Bot },
+      { id: "schedules", label: "Agent buzz", icon: CalendarClock },
     ],
   },
   {
@@ -96,7 +98,7 @@ const NAV_SECTIONS: NavSection[] = [
     advanced: true,
     items: [
       { id: "metrics", label: "Telemetry", icon: Gauge },
-      { id: "command", label: "Activity", icon: Terminal },
+      { id: "command", label: "Commands", icon: Terminal },
       { id: "workloads", label: "Worlds on this PC", icon: Layers },
     ],
   },
@@ -108,7 +110,6 @@ const NAV_SECTIONS: NavSection[] = [
       { id: "players", label: "Players", icon: Users },
       { id: "files", label: "Files", icon: FileCode2 },
       { id: "backups", label: "Backups", icon: Archive },
-      { id: "schedules", label: "Events", icon: CalendarClock },
       { id: "plugins", label: "Mods", icon: Puzzle },
       { id: "worlds", label: "Worlds", icon: Earth },
     ],
@@ -1038,6 +1039,13 @@ function OverviewPanel({
           ))}
         </dl>
       </div>
+
+      <div>
+        <h4 className="text-[10px] font-semibold uppercase tracking-[0.16em] text-text-muted mb-2 px-0.5">
+          Agent buzz
+        </h4>
+        <ActivityFeedPanel guildId={server.guildId} compact max={6} />
+      </div>
     </div>
   );
 }
@@ -1068,7 +1076,10 @@ export function ServerAdminPanel() {
         items: group.items.filter((item) =>
           canManage
             ? true
-            : item.id === "overview" || item.id === "network" || item.id === "settings",
+            : item.id === "overview" ||
+              item.id === "network" ||
+              item.id === "settings" ||
+              item.id === "schedules",
         ),
       })).filter((g) => g.items.length > 0),
     [canManage, showAdvanced],
@@ -1108,7 +1119,6 @@ export function ServerAdminPanel() {
         section === "players" ||
         section === "files" ||
         section === "backups" ||
-        section === "schedules" ||
         section === "plugins" ||
         section === "worlds")
     ) {
@@ -1119,7 +1129,8 @@ export function ServerAdminPanel() {
       !canManage &&
       section !== "overview" &&
       section !== "network" &&
-      section !== "settings"
+      section !== "settings" &&
+      section !== "schedules"
     ) {
       setSection("overview");
     }
@@ -1376,12 +1387,14 @@ export function ServerAdminPanel() {
           {section === "network" ? (
             <NetworkPanel server={server} mping={mping} />
           ) : null}
+          {section === "schedules" ? (
+            <ActivityFeedPanel guildId={guildId} max={40} />
+          ) : null}
           {canManage &&
           (section === "console" ||
             section === "players" ||
             section === "files" ||
             section === "backups" ||
-            section === "schedules" ||
             section === "plugins" ||
             section === "worlds") ? (
             <HostToolsPanel

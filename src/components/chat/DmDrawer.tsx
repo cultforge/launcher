@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import { useDmStore } from "../../stores/dm";
 import { currentUserId } from "../../userstore";
 import { cn } from "../../lib/cn";
@@ -6,6 +6,7 @@ import { dmSnippet, stickerToken } from "../../lib/chatStickers";
 import { ChatBubble } from "./ChatBubble";
 import { ChatComposer } from "./ChatComposer";
 import { ModalShell } from "../modals/ModalShell";
+import { useFriendsRosterStore } from "../../stores/friendsRoster";
 
 function isMine(senderId: string, receiverId: string, peerId: string | null) {
   const me = currentUserId();
@@ -29,7 +30,24 @@ export function DmDrawer() {
   const error = useDmStore((s) => s.error);
   const sendAlert = useDmStore((s) => s.sendAlert);
   const clearSendAlert = useDmStore((s) => s.clearSendAlert);
+  const friends = useFriendsRosterStore((s) => s.friends);
   const bottomRef = useRef<HTMLDivElement>(null);
+
+  const mentionCandidates = useMemo(() => {
+    const fromFriends = friends.map((f) => ({
+      id: f.id,
+      name: f.name || f.id,
+    }));
+    const fromConvos = conversations.map((c) => ({
+      id: c.peer.id,
+      name: c.peer.name || c.peer.id,
+    }));
+    const map = new Map<string, { id: string; name: string }>();
+    for (const row of [...fromFriends, ...fromConvos]) {
+      if (!map.has(row.id)) map.set(row.id, row);
+    }
+    return [...map.values()];
+  }, [friends, conversations]);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -127,6 +145,7 @@ export function DmDrawer() {
               value={draft}
               onChange={setDraft}
               disabled={!activePeerId}
+              mentionCandidates={mentionCandidates}
               onSend={() => void send()}
               onSendSticker={(id) => void send(stickerToken(id))}
             />

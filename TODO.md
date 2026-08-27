@@ -2,6 +2,76 @@
 
 Remote API catalog: [https://api.cultforge.com/manifest.json](https://api.cultforge.com/manifest.json) (`&.build_id`: `v2026.08.13-win`).
 
+## Release: 2.4.3
+
+Target ship semver: **2.4.3**. Stamps: **`2.4.3`** (production).
+
+- [x] Product work for 2.4.3 complete (PATCH-1 + PATCH-2)
+- [x] Drop `-dev` → unify stamps to `2.4.3`
+- [ ] Admin / installed-app smoke signed off
+- [ ] Publish `v2.4.3` (GitHub Actions: Windows + macOS + Linux) + `latest.json`
+
+## PATCH - 1 of 2.4.3
+
+### Batch 1 — Bugs + foundation
+
+- [x] **[MOST IMPORTANT] Copy + share** — copy button wherever it fits; Share creates a deep link and copies it
+- [x] **Lobby music**
+  - [x] Mute/off toggle sometimes does not stop playback
+  - [x] After restart, music plays again even though the option was left off/muted
+- [x] **Presence** — not picking up (players / online status not reflecting)
+- [x] **Servers tab** — do not show guild servers to non-members
+- [x] **Guild builds download** — installs sometimes incomplete (mods missing); reinstall then brings them in
+- [x] **My Builds — Reinstall** — add reinstall button for builds installed from a **guild**
+- [x] **Guild agent buzz** — player announcements not formatted correctly
+
+### Batch 2 — Player surfaces
+
+- [x] **Feed (news)** — bring News panel back as **Feed**; fetch Minecraft news from open-source networks only
+- [x] **Friends UI overhaul**
+- [x] **Discord tab overhaul** — deeper integration + overlays
+- [x] **Settings full-page overhaul** — real rewrite, not a layout tweak
+
+### Batch 3 — Admin panel
+
+- [x] **Admin panel overhaul + bug fixes**
+  - [x] Overview: stats not showing
+  - [x] Users: underusing API/data; feels like an API console — make it UI-centric
+  - [x] Audit: no context; More button does not work
+  - [x] Comms: must type user id; field is congested
+  - [x] Rate limits: no setup guidance; too complex / non-human copy
+  - [x] Reports failing
+  - [x] Guilds (`admins/guilds`) UI overhaul
+  - [x] Invites: missing use counts and richer metrics
+  - [x] Auth: incomplete metrics
+  - [x] Sessions tab too technical
+- [x] **Technical IDs** — keep IDs available; for platform admin add a button to show JSON responses from the server anywhere in the launcher
+
+### Batch 4 — Agent / My PC
+
+- [x] **Agent / My PC**
+  - [x] Connected vs worlds **Offline** mismatch
+  - [x] After Start + logs, Start button still shown — fix status
+  - [x] Options not full-fledged: only 1–2 settings, not entire `options.txt` GUI
+- [x] **My PC console** — color-coded logs
+- [x] **My PC Advanced** — UI incomplete; overall My PC UI congested
+
+## PATCH - 2 of 2.4.3 — Experimental
+
+Behind Settings → Experimental (or equivalent). Default **off**.
+
+- [x] **Windows toast notifications**
+  - [x] Native Windows toast when the launcher receives any notification
+  - [x] After a notification is read/dismissed in-app, do **not** toast it again
+  - [x] Notification click (DM / chat-related) opens the respective chat surface
+- [x] **Chat @mentions** — tag people in chats (picker + highlight + notify target when feasible)
+- [x] **Account switching + MC profile**
+  - [x] Switch CultForge accounts in the launcher without full reinstall friction
+  - [x] Launcher creates a standard Minecraft profile for installation / launch purposes
+- [x] **Per-build CPU pin (experimental toggle on each build)**
+  - [x] When enabled: pin the Minecraft process to a dedicated core and raise process priority
+  - [x] Keep other processes off that core (affinity isolation) as far as the OS allows
+
 ## Release: 2.4 Generation 2 (semver 2.4.0)
 
 Engineering gate for today:

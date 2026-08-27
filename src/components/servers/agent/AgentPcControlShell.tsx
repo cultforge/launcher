@@ -100,11 +100,13 @@ function friendlyWorkloadState(state: string): {
   const s = state.toLowerCase();
   if (s.includes("run") || s === "running")
     return { label: "Online", running: true };
-  if (s.includes("start")) return { label: "Starting…", running: false };
-  if (s.includes("stop") && !s.includes("stopped"))
+  if (s.includes("start")) return { label: "Starting…", running: true };
+  if (s.includes("stop") && s.includes("ing"))
     return { label: "Stopping…", running: false };
   if (s.includes("crash")) return { label: "Crashed", running: false };
-  return { label: "Offline", running: false };
+  if (s.includes("stop") || s === "stopped" || s === "unknown")
+    return { label: "Stopped", running: false };
+  return { label: "Stopped", running: false };
 }
 
 type ServerEntry = {
@@ -293,10 +295,10 @@ export function AgentPcControlShell({
   };
 
   return (
-    <div className="flex h-full min-h-0 gap-0 -mx-2 sm:-mx-0">
-      {/* Aternos-style full-height rail */}
-      <aside className="w-[13.5rem] sm:w-56 shrink-0 flex flex-col min-h-0 border-r border-white/10 pr-3 mr-4">
-        <div className="shrink-0 flex flex-col gap-2 pb-3 border-b border-white/8">
+    <div className="flex h-full min-h-0 gap-0">
+      {/* Worlds + tabs rail */}
+      <aside className="w-48 sm:w-52 shrink-0 flex flex-col min-h-0 border-r border-white/10 pr-3 mr-3">
+        <div className="shrink-0 flex flex-col gap-1.5 pb-2.5 border-b border-white/8">
           <div className="flex items-center justify-between gap-1 px-1">
             <p className="text-[10px] font-semibold uppercase tracking-wider text-text-disabled">
               Worlds
@@ -321,7 +323,7 @@ export function AgentPcControlShell({
               No worlds yet.
             </p>
           ) : (
-            <div className="flex flex-col gap-1 max-h-36 overflow-y-auto scroll-hidden">
+            <div className="flex flex-col gap-0.5 max-h-40 overflow-y-auto scroll-hidden">
               {servers.map((entry) => {
                 const { label, running } = friendlyWorkloadState(entry.state);
                 const active = selectedId === entry.localId;
@@ -334,7 +336,7 @@ export function AgentPcControlShell({
                       setTab("server");
                     }}
                     className={cn(
-                      "rounded-lg px-2.5 py-2 text-left cursor-pointer transition-colors",
+                      "rounded-lg px-2 py-1.5 text-left cursor-pointer transition-colors",
                       active
                         ? "bg-primary-base/15 text-primary-base"
                         : "hover:bg-white/5 text-text-secondary",
@@ -343,7 +345,7 @@ export function AgentPcControlShell({
                     <div className="flex items-center gap-2 min-w-0">
                       <span
                         className={cn(
-                          "h-2 w-2 rounded-full shrink-0",
+                          "h-1.5 w-1.5 rounded-full shrink-0",
                           running ? "bg-primary-base" : "bg-text-disabled",
                         )}
                       />
@@ -353,7 +355,7 @@ export function AgentPcControlShell({
                     </div>
                     <p
                       className={cn(
-                        "mt-0.5 pl-4 text-[10px]",
+                        "mt-0.5 pl-3.5 text-[10px]",
                         active ? "text-primary-base/70" : "text-text-muted",
                       )}
                     >
@@ -366,7 +368,7 @@ export function AgentPcControlShell({
           )}
         </div>
 
-        <nav className="flex flex-col gap-0.5 py-3 shrink-0">
+        <nav className="flex flex-col gap-0.5 py-2.5 shrink-0">
           {TABS.map(({ id, label, icon: IconTab }) => {
             const disabled = !selected && id !== "advanced";
             return (
@@ -376,20 +378,20 @@ export function AgentPcControlShell({
                 disabled={disabled}
                 onClick={() => setTab(id)}
                 className={cn(
-                  "inline-flex items-center gap-2.5 rounded-lg px-2.5 py-2.5 text-[12px] font-semibold text-left cursor-pointer transition-colors disabled:opacity-35 disabled:cursor-not-allowed",
-                  tab === id && selected
+                  "inline-flex items-center gap-2 rounded-lg px-2 py-2 text-[12px] font-semibold text-left cursor-pointer transition-colors disabled:opacity-35 disabled:cursor-not-allowed",
+                  tab === id && (selected || id === "advanced")
                     ? "bg-primary-base/15 text-primary-base"
                     : "text-text-muted hover:bg-white/5 hover:text-text-secondary",
                 )}
               >
-                <IconTab size={15} className="shrink-0 opacity-80" />
+                <IconTab size={14} className="shrink-0 opacity-80" />
                 {label}
               </button>
             );
           })}
         </nav>
 
-        <div className="mt-auto pt-3 border-t border-white/8 shrink-0 space-y-3">
+        <div className="mt-auto pt-2 border-t border-white/8 shrink-0 space-y-2">
           <AgentPcOverview
             node={node}
             serverCount={servers.length}
@@ -401,7 +403,7 @@ export function AgentPcControlShell({
               type="button"
               disabled={busy !== null}
               onClick={() => void onRevokeNode()}
-              className="w-full rounded-lg border border-state-error/20 px-2 py-1.5 text-[10px] text-state-error/90 hover:bg-state-error/10 cursor-pointer disabled:opacity-40"
+              className="w-full rounded-md px-2 py-1 text-[10px] text-state-error/80 hover:bg-state-error/10 cursor-pointer disabled:opacity-40"
             >
               Disconnect PC
             </button>
@@ -409,13 +411,12 @@ export function AgentPcControlShell({
         </div>
       </aside>
 
-      {/* Main stage — Start / Options / Console get the room */}
       <main className="flex-1 min-w-0 min-h-0 flex flex-col">
-        <div className="shrink-0 flex flex-wrap items-center justify-between gap-2 pb-3 mb-1">
+        <div className="shrink-0 flex flex-wrap items-center justify-between gap-2 pb-2 mb-1">
           <div className="flex flex-wrap items-center gap-2 min-w-0">
             <span
               className={cn(
-                "rounded-full px-2.5 py-1 text-[11px] font-bold",
+                "rounded-full px-2 py-0.5 text-[10px] font-bold",
                 connection.pcReachable
                   ? "bg-primary-base/15 text-primary-base"
                   : "bg-white/8 text-text-muted",
@@ -424,30 +425,25 @@ export function AgentPcControlShell({
             >
               {connection.linkLabel}
             </span>
-            {node.guildId ? (
-              <span className="rounded-full bg-accent-delta/12 px-2 py-0.5 text-[9px] font-bold uppercase tracking-wide text-accent-delta">
-                Guild PC
-              </span>
-            ) : (
-              <span className="rounded-full bg-state-info/12 px-2 py-0.5 text-[9px] font-bold uppercase tracking-wide text-state-info">
-                Personal
-              </span>
-            )}
             {selected ? (
               <span className="text-[13px] font-semibold text-text-primary truncate">
                 {selected.name}
               </span>
-            ) : null}
+            ) : (
+              <span className="text-[12px] text-text-muted">
+                {node.guildId ? "Guild PC" : "Personal PC"}
+              </span>
+            )}
           </div>
           {selected?.binding ? (
             <button
               type="button"
               disabled={busy !== null}
               onClick={() => void onUnbind(selected)}
-              className="inline-flex items-center gap-1.5 rounded-lg border border-white/10 px-2.5 py-1.5 text-[10px] text-text-muted hover:text-state-error hover:border-state-error/30 cursor-pointer disabled:opacity-40"
+              className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-[10px] text-text-muted hover:text-state-error cursor-pointer disabled:opacity-40"
             >
-              <Trash2 size={12} />
-              Remove world
+              <Trash2 size={11} />
+              Remove
             </button>
           ) : null}
         </div>
@@ -467,27 +463,27 @@ export function AgentPcControlShell({
         ) : null}
 
         <div className="flex-1 min-h-0 overflow-y-auto scroll-hidden">
-          {!selected ? (
-            <div className="h-full min-h-[20rem] rounded-2xl border border-dashed border-white/12 bg-black/15 flex items-center justify-center p-8 text-center">
+          {!selected && tab !== "advanced" ? (
+            <div className="h-full min-h-[16rem] rounded-xl border border-dashed border-white/10 bg-black/10 flex items-center justify-center p-6 text-center">
               <div>
                 <Monitor
-                  size={36}
-                  className="mx-auto text-text-disabled mb-3"
+                  size={28}
+                  className="mx-auto text-text-disabled mb-2"
                 />
-                <p className="text-[16px] font-semibold text-text-primary font-sora">
+                <p className="text-[14px] font-semibold text-text-primary">
                   Select a world
                 </p>
-                <p className="mt-2 text-[13px] text-text-muted max-w-sm mx-auto leading-relaxed">
-                  Choose a world in the left rail, or tap Add — then Start to
-                  launch Minecraft on this PC.
+                <p className="mt-1 text-[12px] text-text-muted max-w-xs mx-auto leading-relaxed">
+                  Pick a world in the rail, then Start to launch Minecraft on
+                  this PC.
                 </p>
                 {showAddServer && !adding ? (
                   <button
                     type="button"
                     onClick={() => setAdding(true)}
-                    className="mt-4 cf-btn-primary inline-flex items-center gap-1.5 rounded-xl px-4 py-2.5 text-[12px] font-semibold cursor-pointer"
+                    className="mt-3 cf-btn-primary inline-flex items-center gap-1.5 rounded-lg px-3 py-2 text-[11px] font-semibold cursor-pointer"
                   >
-                    <Plus size={14} />
+                    <Plus size={13} />
                     Add world
                   </button>
                 ) : null}
@@ -496,10 +492,10 @@ export function AgentPcControlShell({
           ) : tab === "advanced" ? (
             <AgentAdvancedPanel
               node={node}
-              localServerId={selected.localId}
-              workloadId={selected.workloadId}
+              localServerId={selected?.localId}
+              workloadId={selected?.workloadId}
             />
-          ) : (
+          ) : selected ? (
             <ServerControlPanel
               serverName={selected.name}
               node={node}
@@ -517,7 +513,7 @@ export function AgentPcControlShell({
                     : "console"
               }
             />
-          )}
+          ) : null}
         </div>
       </main>
     </div>

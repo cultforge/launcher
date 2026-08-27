@@ -741,6 +741,72 @@ export async function applySessionToken(token: string): Promise<void> {
   }
 }
 
+export type LocalAccountRow = {
+  id: string;
+  name?: string;
+  avatar_url?: string | null;
+  last_used?: number;
+};
+
+export async function listLocalAccounts(): Promise<LocalAccountRow[]> {
+  const origin = await getClientOrigin();
+  const res = await sidecarFetch(`${origin}/auth/accounts`);
+  const data = (await res.json().catch(() => ({}))) as {
+    accounts?: LocalAccountRow[];
+  };
+  return Array.isArray(data.accounts) ? data.accounts : [];
+}
+
+export async function stashLocalAccount(opts: {
+  userId: string;
+  name?: string;
+  avatarUrl?: string | null;
+}): Promise<LocalAccountRow[]> {
+  const origin = await getClientOrigin();
+  const res = await sidecarFetch(`${origin}/auth/accounts/stash`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      user_id: opts.userId,
+      name: opts.name,
+      avatar_url: opts.avatarUrl,
+    }),
+  });
+  const data = (await res.json().catch(() => ({}))) as {
+    accounts?: LocalAccountRow[];
+    message?: string;
+  };
+  if (!res.ok) {
+    throw new Error(data.message || `Stash failed (${res.status})`);
+  }
+  return Array.isArray(data.accounts) ? data.accounts : [];
+}
+
+export async function activateLocalAccount(userId: string): Promise<void> {
+  const origin = await getClientOrigin();
+  const res = await sidecarFetch(`${origin}/auth/accounts/activate`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ user_id: userId }),
+  });
+  const data = (await res.json().catch(() => ({}))) as { message?: string };
+  if (!res.ok) {
+    throw new Error(data.message || `Switch failed (${res.status})`);
+  }
+}
+
+export async function forgetLocalAccount(userId: string): Promise<LocalAccountRow[]> {
+  const origin = await getClientOrigin();
+  const res = await sidecarFetch(
+    `${origin}/auth/accounts/${encodeURIComponent(userId)}`,
+    { method: "DELETE" },
+  );
+  const data = (await res.json().catch(() => ({}))) as {
+    accounts?: LocalAccountRow[];
+  };
+  return Array.isArray(data.accounts) ? data.accounts : [];
+}
+
 export type OAuthPendingStatus = {
   status: boolean;
   has_session?: boolean;

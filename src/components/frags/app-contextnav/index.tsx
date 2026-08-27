@@ -8,6 +8,7 @@ import { AppIcons } from "../../icons";
 import { Icon } from "../../ico";
 import { friendById } from "../../../data/friends";
 import { useProfileRouteStore } from "../../../stores/profileRoute";
+import { useFriendsRosterStore } from "../../../stores/friendsRoster";
 import {
   UPDATE_FILTERS,
   filterUpdates,
@@ -424,7 +425,7 @@ function HomeDiscoverContext() {
           </>
         ) : (
           <div className="p-3.5 text-[12px] text-text-muted">
-            No Discover stories yet.
+            No Feed stories yet.
           </div>
         )}
       </section>
@@ -814,6 +815,7 @@ function GuildsContext() {
     { tab: "Chat", label: "Chat" },
     { tab: "Servers", label: "Servers" },
     { tab: "Builds", label: "Builds" },
+    { tab: "Activity", label: "Buzz" },
     ...(capabilities.openManagement
       ? [{ tab: "Manage" as const, label: "Manage" }]
       : []),
@@ -1049,6 +1051,8 @@ function FriendsContext() {
   const target = useProfileRouteStore((s) => s.target);
   const selectedId = target?.kind === "friend" ? target.id : null;
   const selected = selectedId ? friendById(selectedId) : null;
+  const friends = useFriendsRosterStore((s) => s.friends);
+  const onlineCount = friends.filter((f) => f.status === "online").length;
 
   return (
     <Shell>
@@ -1058,11 +1062,15 @@ function FriendsContext() {
         </span>
         <div className="flex justify-between text-[12px] text-text-secondary">
           <span>Online</span>
-          <span className="text-primary-base font-semibold tabular-nums">0</span>
+          <span className="text-primary-base font-semibold tabular-nums">
+            {onlineCount}
+          </span>
         </div>
         <div className="flex justify-between text-[12px] text-text-secondary">
           <span>Total</span>
-          <span className="text-text-primary font-semibold tabular-nums">0</span>
+          <span className="text-text-primary font-semibold tabular-nums">
+            {friends.length}
+          </span>
         </div>
         <p className="text-[11px] text-text-muted leading-relaxed pt-1">
           Live roster, requests, and presence. Open Friends to manage DMs.
@@ -1281,7 +1289,7 @@ function ContextWindow() {
   const sideItem = useNavigationStore((s) => s.sideItem);
 
   if (primaryTab === "Home") {
-    if (sideItem === "Discover") return <HomeDiscoverContext />;
+    if (sideItem === "Feed" || sideItem === "Discover") return <HomeDiscoverContext />;
     if (sideItem === "Updates") return <HomeUpdatesContext />;
     if (sideItem === "Friends") return <FriendsContext />;
     if (sideItem === "Discord") return <DiscordContext />;

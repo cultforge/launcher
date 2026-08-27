@@ -3,7 +3,9 @@ import { toast } from "sonner";
 import {
   AdminClient,
   isAdminCapabilityError,
-  unwrapAdminData,
+  pickAdminNumber,
+  pickAdminString,
+  unwrapAdminRecord,
 } from "../../../lib/adminClient";
 import { useAdminSessionStore } from "../../../stores/adminSession";
 import {
@@ -15,11 +17,34 @@ import {
   OpsStatGrid,
   OpsToolbar,
 } from "../ui/ops";
+import { OpsJsonBlock } from "../ui/OpsJsonBlock";
 
 function asRec(v: unknown): Record<string, unknown> | null {
   return v && typeof v === "object" && !Array.isArray(v)
     ? (v as Record<string, unknown>)
     : null;
+}
+
+function providersLabel(overview: Record<string, unknown> | null): string {
+  if (!overview) return "—";
+  const p = overview.providers;
+  if (Array.isArray(p)) {
+    return (
+      p
+        .map((item) => {
+          if (typeof item === "string") return item;
+          const row = asRec(item);
+          return row
+            ? String(row.name ?? row.id ?? row.provider ?? "")
+            : "";
+        })
+        .filter(Boolean)
+        .join(", ") || String(p.length)
+    );
+  }
+  if (typeof p === "number") return String(p);
+  if (typeof p === "string") return p;
+  return pickAdminString(overview, ["provider_count", "providers_count"]);
 }
 
 export function AuthView() {
@@ -28,6 +53,7 @@ export function AuthView() {
     (s) => s.handleCapabilityUnauthorized,
   );
   const [overview, setOverview] = useState<Record<string, unknown> | null>(null);
+  const [raw, setRaw] = useState<unknown>(null);
   const [error, setError] = useState<string | null>(null);
   const [userId, setUserId] = useState("");
   const [busy, setBusy] = useState(false);
@@ -36,8 +62,9 @@ export function AuthView() {
   const load = useCallback(async () => {
     setError(null);
     try {
-      const raw = await AdminClient.authOverview();
-      setOverview(asRec(unwrapAdminData(raw)) ?? asRec(raw));
+      const response = await AdminClient.authOverview();
+      setRaw(response);
+      setOverview(unwrapAdminRecord(response) ?? asRec(response));
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load");
     }
@@ -51,10 +78,8 @@ export function AuthView() {
     <div>
       <OpsPageHeader
         title="Auth"
-        subtitle="Auth service overview and revoke-all sessions for a user."
-        actions={
-          <OpsButton onClick={() => void load()}>Reload</OpsButton>
-        }
+        subtitle="Sign-in health and emergency revoke-all for a user."
+        actions={<OpsButton onClick={() => void load()}>Reload</OpsButton>}
       />
       {error ? <OpsError message={error} onRetry={() => void load()} /> : null}
       <OpsStatGrid
@@ -62,20 +87,47 @@ export function AuthView() {
           {
             label: "Active sessions",
             value: String(
-              overview?.active_sessions ?? overview?.sessions ?? "—",
+              pickAdminNumber(overview, [
+                "active_sessions",
+                "sessions",
+                "session_count",
+              ]) ?? "—",
             ),
           },
           {
             label: "Users",
-            value: String(overview?.users ?? overview?.user_count ?? "—"),
+            value: String(
+              pickAdminNumber(overview, ["users", "user_count", "accounts"]) ??
+                "—",
+            ),
+          },
+          {
+            label: "Logins (24h)",
+            value: String(
+              pickAdminNumber(overview, [
+                "logins_24h",
+                "logins",
+                "successful_logins_24h",
+              ]) ?? "—",
+            ),
+          },
+          {
+            label: "Failures (24h)",
+            value: String(
+              pickAdminNumber(overview, [
+                "failures_24h",
+                "failures",
+                "failed_logins_24h",
+              ]) ?? "—",
+            ),
           },
           {
             label: "Freshness",
-            value: String(overview?.freshness ?? overview?.status ?? "—"),
+            value: pickAdminString(overview, ["freshness", "status", "state"]),
           },
           {
             label: "Providers",
-            value: String(overview?.providers ?? "—"),
+            value: providersLabel(overview),
           },
         ]}
       />
@@ -83,9 +135,12 @@ export function AuthView() {
         <div className="text-[11px] font-semibold uppercase tracking-wide text-text-muted">
           Revoke user sessions
         </div>
+        <p className="text-[11px] text-text-disabled">
+          Signs the player out everywhere. Paste a CultForge user id.
+        </p>
         <OpsToolbar>
           <OpsInput
-            placeholder="User id"
+            placeholder="User id (cf_…)"
             value={userId}
             onChange={(e) => setUserId(e.target.value)}
             className="w-56 font-mono"
@@ -99,22 +154,25 @@ export function AuthView() {
           </OpsButton>
         </OpsToolbar>
       </div>
+      <div className="mt-4 max-w-xl">
+        <OpsJsonBlock value={raw} title="auth overview" />
+      </div>
       <OpsConfirmDialog
         open={confirmOpen}
-        title="Revoke all auth sessions"
-        body={`Revoke every session for user ${userId}. They must sign in again.`}
-        confirmText="revoke-all"
+        title="Revoke all sessions"
+        body={`Revoke every session for ${userId.trim()}?`}
+        confirmText="revoke"
         danger
         busy={busy}
         onCancel={() => setConfirmOpen(false)}
         onConfirm={async () => {
-          if (!capabilityActive || !userId.trim()) return;
+          if (!capabilityActive) return;
           setBusy(true);
           try {
-            await AdminClient.revokeUserAuthSessions(userId.trim());
+            await AdminClient.revokeAllUserSessions(userId.trim());
             toast.success("Sessions revoked");
             setConfirmOpen(false);
-            await load();
+            setUserId("");
           } catch (err) {
             if (isAdminCapabilityError(err)) handleUnauthorized();
             toast.error(err instanceof Error ? err.message : "Failed");

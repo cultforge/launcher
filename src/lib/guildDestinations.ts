@@ -55,8 +55,8 @@ export const GUILD_DESTINATIONS: GuildDestination[] = [
   },
   {
     tab: "Activity",
-    title: "Activity",
-    description: "Recent guild activity",
+    title: "Buzz",
+    description: "Live agent play signals for the whole guild",
     icon: "Activity",
   },
   {

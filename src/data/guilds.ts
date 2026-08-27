@@ -259,7 +259,7 @@ export const GUILD_HUB_TAB_LABELS: Record<GuildHubTab, string> = {
   Servers: "Servers",
   Builds: "Builds",
   Members: "Members",
-  Activity: "Activity",
+  Activity: "Buzz",
   Players: "Players",
   Forums: "Forums",
   Rankings: "Rankings",

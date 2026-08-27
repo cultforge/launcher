@@ -935,6 +935,11 @@ pub async fn install_loader_build(
     let (instance_path, _) =
         crate::instances::ensure_instance_dir(&version_id, loader_label(loader))?;
     let version_path = root.join("versions").join(&version_id);
+    let _ = crate::minecraft_bootstrap::upsert_cultforge_profile(
+        &root,
+        Some(&version_id),
+        Some(&instance_path.to_string_lossy()),
+    );
     emit_job_progress(&gate, &app, &job_id, "job", &display, "done", 1, 1, None);
 
     Ok(LoaderInstallResult {

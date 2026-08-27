@@ -7,6 +7,8 @@ export type LyricsDisplayMode = "full" | "compact";
 type PersistedLobbyState = {
   volume: number;
   muted: boolean;
+  /** Last user play/pause choice — restored across restarts. */
+  playing?: boolean;
   lyricsOpen: boolean;
   lyricsMode: LyricsDisplayMode;
   lyricsOffset: number;
@@ -45,6 +47,7 @@ function persist(get: () => LobbyMusicStore) {
   const value: PersistedLobbyState = {
     volume: state.volume,
     muted: state.muted,
+    playing: state.playing,
     lyricsOpen: state.lyricsOpen,
     lyricsMode: state.lyricsMode,
     lyricsOffset: state.lyricsOffset,
@@ -77,6 +80,8 @@ export const useLobbyMusicStore = create<LobbyMusicStore>((set, get) => ({
           ? Math.min(1, Math.max(0, saved.volume))
           : 0.35,
       muted: Boolean(saved.muted),
+      // Default to wanting music when the key was never saved; respect explicit pause.
+      playing: typeof saved.playing === "boolean" ? saved.playing : true,
       lyricsOpen: Boolean(saved.lyricsOpen),
       lyricsMode: saved.lyricsMode === "compact" ? "compact" : "full",
       lyricsOffset:
@@ -87,8 +92,14 @@ export const useLobbyMusicStore = create<LobbyMusicStore>((set, get) => ({
       lyricsPosition: saved.lyricsPosition ?? null,
     });
   },
-  setPlaying: (playing) => set({ playing }),
-  togglePlaying: () => set({ playing: !get().playing }),
+  setPlaying: (playing) => {
+    set({ playing });
+    persist(get);
+  },
+  togglePlaying: () => {
+    set({ playing: !get().playing });
+    persist(get);
+  },
   setMuted: (muted) => {
     set({ muted });
     persist(get);

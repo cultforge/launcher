@@ -1,8 +1,7 @@
-import { useEffect, useState } from "react";
+import { useEffect } from "react";
 import { useBuildCatalogStore } from "../../../../stores/buildCatalog";
 import { EntityImage } from "../../../EntityImage";
-import { Icon } from "../../../ico";
-import { AppIcons } from "../../../icons";
+import { CopyButton } from "../../../CopyButton";
 import type { CatalogBuildRecord } from "../../../../types/catalog";
 
 function loaderBadge(loader: string) {
@@ -90,14 +89,6 @@ function BuildDetailDrawer({
   build: CatalogBuildRecord;
   onClose: () => void;
 }) {
-  const [copied, setCopied] = useState(false);
-
-  const copyId = () => {
-    void navigator.clipboard.writeText(build.id).then(() => {
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    });
-  };
   return (
     <div className="fixed inset-0 z-50 flex justify-end bg-black/50">
       <button
@@ -175,14 +166,12 @@ function BuildDetailDrawer({
           )}
 
           <div className="flex flex-col gap-2 mt-2">
-            <button
-              type="button"
-              onClick={copyId}
-              className="cf-btn-primary flex items-center justify-center gap-2 rounded-lg px-5 py-2.5 text-[12px] font-bold cursor-pointer"
-            >
-              <Icon icon={AppIcons.Download} size={16} />
-              {copied ? "Build ID copied!" : "Copy build ID"}
-            </button>
+            <CopyButton
+              text={build.id}
+              label="Copy build ID"
+              successMessage="Build ID copied!"
+              className="cf-btn-primary justify-center border-0 px-5 py-2.5 text-[12px] font-bold text-white hover:bg-primary-base/90"
+            />
             <p className="text-[9px] text-text-disabled text-center">
               Install this build from the Builds tab using the copied ID.
             </p>

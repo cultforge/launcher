@@ -40,17 +40,17 @@ export function LobbyMusicControls() {
   const rafRef = useRef(0);
 
   useEffect(() => {
-    if (playing && !visualIdle) {
+    if (playing && !visualIdle && !muted) {
       lobbyAudioStart(volume, muted).catch(() => {
         /* keep playing=true — gesture unlock retries */
       });
     } else {
       lobbyAudioStop();
     }
-  }, [playing, visualIdle]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [playing, visualIdle, muted]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
-    lobbyAudioSetVolume(volume, muted, playing);
+    lobbyAudioSetVolume(volume, muted, playing && !muted);
   }, [volume, muted, playing]);
 
   useEffect(() => {
@@ -150,9 +150,8 @@ export function LobbyMusicControls() {
       <button
         type="button"
         onClick={toggleMuted}
-        disabled={!playing}
         className={cn(
-          "p-1.5 rounded-md cursor-pointer transition-colors disabled:opacity-40 disabled:cursor-not-allowed",
+          "p-1.5 rounded-md cursor-pointer transition-colors",
           muted
             ? "text-text-muted hover:text-text-secondary"
             : "text-text-secondary hover:text-text-primary hover:bg-white/4",

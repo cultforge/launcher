@@ -1,4 +1,4 @@
-"""Patch Windows PE OptionalHeader.Subsystem CUI(3) → GUI(2) so helpers never allocate a console."""
+"""Patch Windows PE OptionalHeader.Subsystem CUI(3) -> GUI(2) so helpers never allocate a console."""
 from __future__ import annotations
 
 import struct
@@ -24,7 +24,7 @@ def patch_subsystem_gui(path: Path) -> str:
         return f"{path.name}: subsystem={old} (left unchanged)"
     struct.pack_into("<H", data, sub_off, 2)
     path.write_bytes(data)
-    return f"{path.name}: subsystem {old} → 2 (GUI) magic=0x{magic:X}"
+    return f"{path.name}: subsystem {old} -> 2 (GUI) magic=0x{magic:X}"
 
 
 def main() -> None:

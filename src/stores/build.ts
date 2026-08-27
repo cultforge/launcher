@@ -40,6 +40,8 @@ export type BuildConfig = {
   fullscreen: boolean;
   closeOnLaunch: boolean;
   dedicatedGpu: boolean;
+  /** Experimental: pin MC to dedicated core + high priority. */
+  cpuPin: boolean;
 };
 
 export type BuildSource = "local" | "guild";
@@ -100,6 +102,7 @@ export const DEFAULT_BUILD_CONFIG: BuildConfig = {
   fullscreen: false,
   closeOnLaunch: true,
   dedicatedGpu: true,
+  cpuPin: false,
 };
 
 const ACCENTS = [

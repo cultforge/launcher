@@ -1,10 +1,13 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { useGuildStore } from "../../../stores/guilds";
 import type { ChatMessage } from "../../../data/guilds";
 import type { GuildChannel } from "../../../lib/guildChat";
 import { cn } from "../../../lib/cn";
 import { CfSelect } from "../../ui/CfSelect";
+import { ChatComposer, highlightMentions } from "../../chat/ChatComposer";
+import { ChatMarkdown } from "../../chat/ChatMarkdown";
+import { stickerToken } from "../../../lib/chatStickers";
 
 const EMPTY_MESSAGES: ChatMessage[] = [];
 const EMPTY_CHANNELS: GuildChannel[] = [];
@@ -17,6 +20,7 @@ export function ChatPanel() {
   const channels = useGuildStore(
     (s) => s.channelsByGuild[guildId] ?? EMPTY_CHANNELS,
   );
+  const members = useGuildStore((s) => s.members);
   const activeChannelId = useGuildStore(
     (s) => s.activeChannelByGuild[guildId],
   );
@@ -27,6 +31,14 @@ export function ChatPanel() {
   const [draft, setDraft] = useState("");
   const [sending, setSending] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
+
+  const mentionCandidates = useMemo(
+    () =>
+      members
+        .filter((m) => m.guildId === guildId)
+        .map((m) => ({ id: m.userId, name: m.name })),
+    [members, guildId],
+  );
 
   useEffect(() => {
     if (!guildId) return;
@@ -143,9 +155,9 @@ export function ChatPanel() {
                     </span>
                   </div>
                 )}
-                <p className="text-[13px] text-text-secondary leading-relaxed">
-                  {m.text}
-                </p>
+                <div className="text-[13px] text-text-secondary leading-relaxed">
+                  <ChatMarkdown source={highlightMentions(m.text)} />
+                </div>
               </div>
             </div>
           );
@@ -153,27 +165,19 @@ export function ChatPanel() {
         <div ref={bottomRef} />
       </div>
 
-      <div className="p-3 border-t border-white/6 bg-black/20 flex gap-2">
-        <input
-          type="text"
-          value={draft}
-          onChange={(e) => setDraft(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter") void onSend();
-          }}
-          disabled={sending || Boolean(chatStatus?.loading)}
-          placeholder={`Message ${channelLabel}…`}
-          className="flex-1 px-3.5 py-2.5 rounded-xl text-[13px] bg-black/40 border border-white/10 text-text-primary placeholder:text-text-disabled outline-none focus:border-primary-base/40 disabled:opacity-50"
-        />
-        <button
-          type="button"
-          onClick={() => void onSend()}
-          disabled={sending || !draft.trim()}
-          className="cf-btn-primary px-5 py-2.5 rounded-xl text-[12px] font-semibold cursor-pointer disabled:opacity-50"
-        >
-          {sending ? "…" : "Send"}
-        </button>
-      </div>
+      <ChatComposer
+        value={draft}
+        onChange={setDraft}
+        disabled={sending || Boolean(chatStatus?.loading)}
+        placeholder={`Message ${channelLabel}…`}
+        mentionCandidates={mentionCandidates}
+        onSend={() => void onSend()}
+        onSendSticker={(id) => {
+          void sendChat(guildId, stickerToken(id)).then((result) => {
+            if (!result.ok) toast.error(result.message);
+          });
+        }}
+      />
     </div>
   );
 }

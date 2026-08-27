@@ -65,8 +65,11 @@ export function CommunicationsView() {
     try {
       await AdminClient.sendNotification({
         title: notifTitle,
+        kind: "admin.notice",
         body: notifBody,
-        ...(notifUser ? { user_id: notifUser } : {}),
+        ...(notifUser.trim()
+          ? { user_ids: [notifUser.trim()] }
+          : { all_active: true }),
       });
       toast.success("Notification sent");
       setNotifTitle("");
@@ -90,7 +93,7 @@ export function CommunicationsView() {
       await AdminClient.sendMail({
         to: mailTo,
         subject: mailSubject,
-        body: mailBody,
+        body_text: mailBody,
       });
       toast.success("Mail queued");
       setMailTo("");
@@ -146,6 +149,9 @@ export function CommunicationsView() {
           <div className="text-[11px] font-semibold uppercase tracking-wide text-text-muted">
             Send notification
           </div>
+          <p className="text-[11px] text-text-disabled">
+            Leave recipient empty to broadcast to all active users.
+          </p>
           <OpsInput
             placeholder="Title"
             value={notifTitle}
@@ -153,16 +159,16 @@ export function CommunicationsView() {
             className="w-full"
           />
           <OpsInput
-            placeholder="User id (optional)"
+            placeholder="Recipient username or user id (optional)"
             value={notifUser}
             onChange={(e) => setNotifUser(e.target.value)}
-            className="w-full font-mono"
+            className="w-full"
           />
           <OpsTextarea
-            placeholder="Body"
+            placeholder="Message body"
             value={notifBody}
             onChange={(e) => setNotifBody(e.target.value)}
-            rows={3}
+            rows={4}
             className="w-full"
           />
           <OpsButton

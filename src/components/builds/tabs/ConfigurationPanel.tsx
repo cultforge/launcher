@@ -499,6 +499,12 @@ export function ConfigurationPanel() {
               checked={draft.dedicatedGpu}
               onChange={(v) => patch({ dedicatedGpu: v })}
             />
+            <ToggleRow
+              label="CPU pin (experimental)"
+              description="Pin Minecraft to a dedicated core at high priority and keep other processes off that core when possible (Windows)"
+              checked={draft.cpuPin}
+              onChange={(v) => patch({ cpuPin: v })}
+            />
           </div>
         </section>
       </div>

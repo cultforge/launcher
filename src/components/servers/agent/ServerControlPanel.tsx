@@ -28,6 +28,7 @@ import {
   humanCommandPhase,
   parseConsoleFromCommand,
   parseStatusData,
+  parseConfigProperties,
 } from "../../../lib/agentCommands";
 import { subscribeAgentCommandEvents } from "../../../lib/agentCommandEvents";
 import {
@@ -43,6 +44,7 @@ import {
 } from "../../../lib/agentControl";
 import { startingPhaseLabel } from "../../../lib/agentResultHumanize";
 import { cn } from "../../../lib/cn";
+import { eventText } from "../../guilds/ActivityFeedPanel";
 
 const DIFFICULTIES = ["peaceful", "easy", "normal", "hard"] as const;
 const GAMEMODES = ["survival", "creative", "adventure", "spectator"] as const;
@@ -92,23 +94,46 @@ function friendlyState(raw: string): { label: string; tone: string } {
     return { label: "Online", tone: "bg-primary-base/15 text-primary-base" };
   if (s.includes("start"))
     return { label: "Starting…", tone: "bg-state-warning/15 text-state-warning" };
-  if (s.includes("stop") && !s.includes("stopped"))
+  if (s.includes("stop") && s.includes("ing"))
     return { label: "Stopping…", tone: "bg-state-warning/15 text-state-warning" };
   if (s.includes("crash"))
     return { label: "Crashed", tone: "bg-state-error/15 text-state-error" };
   if (s.includes("queue"))
     return { label: "Queued", tone: "bg-white/8 text-text-muted" };
-  return { label: "Offline", tone: "bg-white/8 text-text-muted" };
+  if (s.includes("stop"))
+    return { label: "Stopped", tone: "bg-white/8 text-text-muted" };
+  return { label: "Stopped", tone: "bg-white/8 text-text-muted" };
+}
+
+function classifyMcLogLine(
+  line: string,
+): "error" | "warn" | "success" | "info" | "muted" {
+  const s = line.replace(/\u001b\[[0-9;]*m/g, "");
+  if (/\[?(ERROR|FATAL|SEVERE)\]?|Exception|Error:/i.test(s)) return "error";
+  if (/\[?(WARN|WARNING)\]?/i.test(s)) return "warn";
+  if (/Done \(|\[?(SUCCESS)\]?|joined the game/i.test(s)) return "success";
+  if (/\[?(INFO|DEBUG)\]?/i.test(s)) return "info";
+  if (s.startsWith(">")) return "muted";
+  return "info";
+}
+
+function logLineClass(kind: ReturnType<typeof classifyMcLogLine>): string {
+  switch (kind) {
+    case "error":
+      return "text-state-error";
+    case "warn":
+      return "text-state-warning";
+    case "success":
+      return "text-state-success";
+    case "muted":
+      return "text-text-disabled";
+    default:
+      return "text-text-secondary";
+  }
 }
 
 function eventLabel(ev: CultAgentGameEvent): string {
-  const who = ev.minecraftName?.trim() || "Someone";
-  const t = ev.eventType.toLowerCase();
-  if (t.includes("join")) return `${who} joined`;
-  if (t.includes("leave") || t.includes("quit")) return `${who} left`;
-  if (t.includes("death") || t.includes("died")) return `${who} died`;
-  if (t.includes("advancement")) return `${who} got an advancement`;
-  return `${who} · ${ev.eventType}`;
+  return eventText(ev);
 }
 
 function Meter({
@@ -169,6 +194,17 @@ export function ServerControlPanel({
   const [nether, setNether] = useState(true);
   const [pvp, setPvp] = useState(true);
   const [whitelist, setWhitelist] = useState(false);
+  const [spawnMonsters, setSpawnMonsters] = useState(true);
+  const [onlineMode, setOnlineMode] = useState(true);
+  const [commandBlocks, setCommandBlocks] = useState(false);
+  const [viewDistance, setViewDistance] = useState("10");
+  const [simulationDistance, setSimulationDistance] = useState("10");
+  const [levelName, setLevelName] = useState("world");
+  const [levelSeed, setLevelSeed] = useState("");
+  const [allProps, setAllProps] = useState<Record<string, string>>({});
+  const [propsLoading, setPropsLoading] = useState(false);
+  const [propsError, setPropsError] = useState<string | null>(null);
+  const [configLoaded, setConfigLoaded] = useState(false);
   const [adminCmd, setAdminCmd] = useState(false);
   const [needsInstall, setNeedsInstall] = useState(false);
   const [linkMode, setLinkMode] = useState(connectionMode);
@@ -181,7 +217,41 @@ export function ServerControlPanel({
   const telemetryHasConsole = useRef(false);
   const throttleUntilRef = useRef(0);
   const transportRef = useRef<ControlTransport | null>(null);
+  /** Prevent stale workload polls from clobbering optimistic start/stop. */
+  const stickyRunUntilRef = useRef(0);
+  const stickyRunStateRef = useRef<string | null>(null);
   const boundId = (cloudServerId || localServerId).trim();
+
+  const applyRunState = useCallback((next: string, stickyMs = 0) => {
+    setRunState(next);
+    if (stickyMs > 0) {
+      stickyRunStateRef.current = next;
+      stickyRunUntilRef.current = Date.now() + stickyMs;
+    }
+  }, []);
+
+  const mergeRemoteRunState = useCallback((incoming: string | null | undefined) => {
+    if (!incoming) return;
+    const now = Date.now();
+    if (now < stickyRunUntilRef.current && stickyRunStateRef.current) {
+      const sticky = stickyRunStateRef.current.toLowerCase();
+      const rem = incoming.toLowerCase();
+      // Keep optimistic starting/running until remote agrees or sticky expires.
+      if (
+        (sticky.includes("start") || sticky.includes("run")) &&
+        (rem.includes("stop") || rem === "unknown" || rem === "offline")
+      ) {
+        return;
+      }
+      if (
+        sticky.includes("stop") &&
+        (rem.includes("run") || rem.includes("online"))
+      ) {
+        return;
+      }
+    }
+    setRunState(incoming);
+  }, []);
 
   useEffect(() => {
     setLinkMode(connectionMode);
@@ -279,7 +349,7 @@ export function ServerControlPanel({
           raw.resource_id,
         ].some((x) => String(x ?? "") === boundId);
       });
-      if (match?.reportedState) setRunState(match.reportedState);
+      if (match?.reportedState) mergeRemoteRunState(match.reportedState);
     } catch {
       /* GET workloads is optional */
     }
@@ -292,7 +362,7 @@ export function ServerControlPanel({
           (workloadId != null && s.workloadId === workloadId),
       );
       if (snap) {
-        if (snap.state && snap.state !== "unknown") setRunState(snap.state);
+        if (snap.state && snap.state !== "unknown") mergeRemoteRunState(snap.state);
         setPlayers(snap.playerCount);
       }
     } catch {
@@ -331,7 +401,7 @@ export function ServerControlPanel({
       /* GET events is optional */
     }
     return usedTelemetryConsole;
-  }, [boundId, cloudServerId, guildId, localServerId, node.id, workloadId]);
+  }, [boundId, cloudServerId, guildId, localServerId, mergeRemoteRunState, node.id, workloadId]);
 
   const refreshPlayersOnly = useCallback(async () => {
     await refreshRuntime();
@@ -476,16 +546,24 @@ export function ServerControlPanel({
           setRunState(
             data.state && data.state !== "unknown" ? data.state : "running",
           );
+          stickyRunStateRef.current = "running";
+          stickyRunUntilRef.current = Date.now() + 45_000;
         } else if (st.includes("dispatch") || st.includes("queue")) {
           setRunState("starting");
+          stickyRunStateRef.current = "starting";
+          stickyRunUntilRef.current = Date.now() + 45_000;
         }
       }
       if (cmd.action === "server.stop") {
         const st = String(cmd.status ?? "").toLowerCase();
         if (st.includes("succeed") || st.includes("success") || st.includes("done")) {
           setRunState("stopped");
+          stickyRunStateRef.current = "stopped";
+          stickyRunUntilRef.current = Date.now() + 30_000;
         } else if (st.includes("dispatch") || st.includes("queue")) {
           setRunState("stopping");
+          stickyRunStateRef.current = "stopping";
+          stickyRunUntilRef.current = Date.now() + 30_000;
         }
       }
     });
@@ -524,10 +602,10 @@ export function ServerControlPanel({
             "local",
           );
           const status = await fetchServerStatusViaControl(controlCtx, "local");
-          if (status.state === "running") setRunState("running");
-          else if (status.state === "stopped") setRunState("stopped");
-          else if (action === "server.start") setRunState("running");
-          else if (action === "server.stop") setRunState("stopped");
+          if (status.state === "running") applyRunState("running", 45_000);
+          else if (status.state === "stopped") applyRunState("stopped", 30_000);
+          else if (action === "server.start") applyRunState("running", 45_000);
+          else if (action === "server.stop") applyRunState("stopped", 30_000);
           setPhase("Done");
           void refreshRuntime();
           void pullConsole(
@@ -631,7 +709,7 @@ export function ServerControlPanel({
   const onStart = () => {
     if (inFlightRef.current) return;
     setPhase(startingPhaseLabel(linkMode));
-    setRunState("starting");
+    applyRunState("starting", 60_000);
     void run("server.start", { accept_eula: true });
   };
 
@@ -654,21 +732,93 @@ export function ServerControlPanel({
   };
 
   const onSaveSettings = () => {
-    if (!window.confirm("Save these settings on the server?")) return;
-    void run("server.config.update", {
-      values: {
-        difficulty,
-        gamemode,
-        motd,
-        "max-players": maxPlayersInput,
-        "allow-nether": nether ? "true" : "false",
-        pvp: pvp ? "true" : "false",
-        "white-list": whitelist ? "true" : "false",
-      },
-    }).then((cmd) => {
-      if (cmd) toast.success("Settings saved — they apply on the next start");
+    if (!window.confirm("Save these server.properties on the PC?")) return;
+    const values: Record<string, string> = {
+      ...allProps,
+      difficulty,
+      gamemode,
+      motd,
+      "max-players": maxPlayersInput,
+      "allow-nether": nether ? "true" : "false",
+      pvp: pvp ? "true" : "false",
+      "white-list": whitelist ? "true" : "false",
+      "spawn-monsters": spawnMonsters ? "true" : "false",
+      "online-mode": onlineMode ? "true" : "false",
+      "enable-command-block": commandBlocks ? "true" : "false",
+      "view-distance": viewDistance,
+      "simulation-distance": simulationDistance,
+      "level-name": levelName,
+      ...(levelSeed.trim() ? { "level-seed": levelSeed.trim() } : {}),
+    };
+    void run("server.config.update", { values }).then((cmd) => {
+      if (cmd) {
+        setAllProps(values);
+        toast.success("Properties saved — they apply on the next start");
+      }
     });
   };
+
+  const loadServerProperties = useCallback(async () => {
+    if (!online || !boundId) return;
+    setPropsLoading(true);
+    setPropsError(null);
+    try {
+      const cmd = await enqueueBoundCommand({
+        nodeId: node.id,
+        action: "server.config.read",
+        localServerId: boundId,
+        workloadId: workloadId ?? undefined,
+      });
+      const finished = await waitForCultAgentCommand(node.id, cmd.id);
+      const props = parseConfigProperties(finished);
+      if (!Object.keys(props).length) {
+        setPropsError("No server.properties returned from this PC yet.");
+        setConfigLoaded(true);
+        return;
+      }
+      setAllProps(props);
+      if (props.difficulty) setDifficulty(props.difficulty);
+      if (props.gamemode) setGamemode(props.gamemode);
+      if (props.motd != null) setMotd(props.motd);
+      if (props["max-players"]) setMaxPlayersInput(props["max-players"]);
+      if (props["allow-nether"] != null)
+        setNether(props["allow-nether"] === "true");
+      if (props.pvp != null) setPvp(props.pvp === "true");
+      if (props["white-list"] != null)
+        setWhitelist(props["white-list"] === "true");
+      if (props["spawn-monsters"] != null)
+        setSpawnMonsters(props["spawn-monsters"] === "true");
+      if (props["online-mode"] != null)
+        setOnlineMode(props["online-mode"] === "true");
+      if (props["enable-command-block"] != null)
+        setCommandBlocks(props["enable-command-block"] === "true");
+      if (props["view-distance"]) setViewDistance(props["view-distance"]);
+      if (props["simulation-distance"])
+        setSimulationDistance(props["simulation-distance"]);
+      if (props["level-name"]) setLevelName(props["level-name"]);
+      if (props["level-seed"] != null) setLevelSeed(props["level-seed"]);
+      setConfigLoaded(true);
+    } catch (err) {
+      setPropsError(
+        err instanceof Error ? err.message : "Could not read server.properties",
+      );
+    } finally {
+      setPropsLoading(false);
+    }
+  }, [boundId, node.id, online, workloadId]);
+
+  useEffect(() => {
+    setConfigLoaded(false);
+    setAllProps({});
+    setPropsError(null);
+  }, [boundId]);
+
+  useEffect(() => {
+    if (!(view === "all" || view === "options") || configLoaded || !online) {
+      return;
+    }
+    void loadServerProperties();
+  }, [configLoaded, loadServerProperties, online, view]);
 
   const onSend = async () => {
     const command = draft.trim().replace(/^\//, "");
@@ -684,7 +834,9 @@ export function ServerControlPanel({
     (/\bstart|\bqueue/i.test(runState) && !/\bstop/i.test(runState)) ||
     busy === "server.start";
   const startLabel = starting ? startingPhaseLabel(linkMode) : "Start";
-  const live = /\brun|\bonline/i.test(runState);
+  // Treat starting/running as "live" so Start does not reappear while booting.
+  const live =
+    /\brun|\bonline|\bstart/i.test(runState) && !/\bstopp|\bstopped\b/i.test(runState);
   const locked = busy !== null || !online || starting;
   const showServer = view === "all" || view === "server";
   const showOptions = view === "all" || view === "options";
@@ -940,9 +1092,27 @@ export function ServerControlPanel({
 
       {showOptions ? (
       <div className="rounded-xl border border-white/8 bg-black/20 p-3 flex flex-col gap-3">
-        <h4 className="text-[11px] font-semibold uppercase tracking-wider text-text-muted">
-          Settings
-        </h4>
+        <div className="flex items-center justify-between gap-2">
+          <div>
+            <h4 className="text-[11px] font-semibold uppercase tracking-wider text-text-muted">
+              Server properties
+            </h4>
+            <p className="mt-0.5 text-[10px] text-text-muted">
+              Edits Minecraft <span className="font-mono">server.properties</span> on this PC.
+            </p>
+          </div>
+          <button
+            type="button"
+            disabled={busy !== null || !online || propsLoading}
+            onClick={() => void loadServerProperties()}
+            className="rounded-lg border border-white/10 bg-white/[0.04] px-2.5 py-1.5 text-[10px] font-semibold text-text-secondary cursor-pointer disabled:opacity-40"
+          >
+            {propsLoading ? "Loading…" : "Reload"}
+          </button>
+        </div>
+        {propsError ? (
+          <p className="text-[11px] text-state-error">{propsError}</p>
+        ) : null}
         <div className="grid grid-cols-2 gap-3">
           <label className="flex flex-col gap-1 text-[10px] text-text-muted">
             Difficulty
@@ -991,6 +1161,37 @@ export function ServerControlPanel({
               className="rounded-lg border border-border-strong bg-black/30 px-2 py-2 text-[12px] text-text-primary"
             />
           </label>
+          <label className="flex flex-col gap-1 text-[10px] text-text-muted">
+            View distance
+            <input
+              type="number"
+              min={2}
+              max={32}
+              value={viewDistance}
+              onChange={(e) => setViewDistance(e.target.value)}
+              className="rounded-lg border border-border-strong bg-black/30 px-2 py-2 text-[12px] text-text-primary"
+            />
+          </label>
+          <label className="flex flex-col gap-1 text-[10px] text-text-muted">
+            Simulation distance
+            <input
+              type="number"
+              min={2}
+              max={32}
+              value={simulationDistance}
+              onChange={(e) => setSimulationDistance(e.target.value)}
+              className="rounded-lg border border-border-strong bg-black/30 px-2 py-2 text-[12px] text-text-primary"
+            />
+          </label>
+          <label className="col-span-2 flex flex-col gap-1 text-[10px] text-text-muted">
+            Level seed
+            <input
+              value={levelSeed}
+              onChange={(e) => setLevelSeed(e.target.value)}
+              placeholder="Leave blank to keep current"
+              className="rounded-lg border border-border-strong bg-black/30 px-2 py-2 text-[12px] text-text-primary"
+            />
+          </label>
         </div>
         <div className="flex flex-wrap gap-3 text-[12px] text-text-secondary">
           <label className="flex items-center gap-2 cursor-pointer">
@@ -1009,14 +1210,66 @@ export function ServerControlPanel({
             />
             Whitelist
           </label>
+          <label className="flex items-center gap-2 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={onlineMode}
+              onChange={(e) => setOnlineMode(e.target.checked)}
+            />
+            Online mode
+          </label>
+          <label className="flex items-center gap-2 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={spawnMonsters}
+              onChange={(e) => setSpawnMonsters(e.target.checked)}
+            />
+            Spawn monsters
+          </label>
+          <label className="flex items-center gap-2 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={commandBlocks}
+              onChange={(e) => setCommandBlocks(e.target.checked)}
+            />
+            Command blocks
+          </label>
         </div>
+        {Object.keys(allProps).length > 0 ? (
+          <details className="rounded-lg border border-white/8 bg-black/25 p-2">
+            <summary className="cursor-pointer text-[11px] font-semibold text-text-secondary">
+              All properties ({Object.keys(allProps).length})
+            </summary>
+            <div className="mt-2 max-h-48 overflow-y-auto flex flex-col gap-1.5">
+              {Object.keys(allProps)
+                .sort()
+                .map((key) => (
+                  <label
+                    key={key}
+                    className="grid grid-cols-[minmax(0,1fr)_minmax(0,1.2fr)] gap-2 items-center text-[10px]"
+                  >
+                    <span className="font-mono text-text-muted truncate" title={key}>
+                      {key}
+                    </span>
+                    <input
+                      value={allProps[key] ?? ""}
+                      onChange={(e) =>
+                        setAllProps((prev) => ({ ...prev, [key]: e.target.value }))
+                      }
+                      className="rounded border border-border-strong bg-black/30 px-2 py-1 text-[11px] text-text-primary font-mono"
+                    />
+                  </label>
+                ))}
+            </div>
+          </details>
+        ) : null}
         <button
           type="button"
           disabled={busy !== null || !online}
           onClick={onSaveSettings}
           className="self-start cf-btn-primary rounded-lg px-3 py-2 text-[11px] font-semibold cursor-pointer disabled:opacity-40"
         >
-          Save settings
+          Save properties
         </button>
       </div>
       ) : null}
@@ -1026,8 +1279,21 @@ export function ServerControlPanel({
         <h4 className="text-[11px] font-semibold uppercase tracking-wider text-text-muted">
           Console
         </h4>
-        <pre className="min-h-40 max-h-[40vh] overflow-y-auto rounded-lg border border-white/8 bg-black/45 p-3 text-[10px] leading-relaxed text-text-secondary font-mono whitespace-pre-wrap scroll-hidden">
-          {lines.length ? lines.join("\n") : "No log yet. Start the server to see output."}
+        <pre className="min-h-40 max-h-[min(50vh,420px)] flex-1 overflow-y-auto rounded-lg border border-white/8 bg-black/45 p-3 text-[10px] leading-relaxed font-mono whitespace-pre-wrap scroll-hidden">
+          {lines.length ? (
+            lines.map((line, i) => (
+              <div
+                key={`${i}-${line.slice(0, 32)}`}
+                className={logLineClass(classifyMcLogLine(line))}
+              >
+                {line}
+              </div>
+            ))
+          ) : (
+            <span className="text-text-disabled">
+              No log yet. Start the server to see output.
+            </span>
+          )}
           <div ref={endRef} />
         </pre>
         {adminCmd ? (

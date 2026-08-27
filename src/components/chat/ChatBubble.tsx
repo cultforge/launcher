@@ -1,6 +1,7 @@
 import { cn } from "../../lib/cn";
 import { parseStickerId, stickerById } from "../../lib/chatStickers";
 import { ChatMarkdown } from "./ChatMarkdown";
+import { highlightMentions } from "./ChatComposer";
 
 export function ChatBubble({
   mine,
@@ -15,6 +16,7 @@ export function ChatBubble({
 }) {
   const stickerId = parseStickerId(content);
   const sticker = stickerId ? stickerById(stickerId) : undefined;
+  const displaySource = sticker ? content : highlightMentions(content);
 
   return (
     <div className={cn("flex flex-col gap-0.5 max-w-[75%]", mine ? "self-end items-end" : "self-start items-start")}>
@@ -37,7 +39,7 @@ export function ChatBubble({
           )}
         >
           <ChatMarkdown
-            source={content}
+            source={displaySource}
             className={mine ? "text-text-primary [&_a]:text-primary-base" : ""}
           />
         </div>

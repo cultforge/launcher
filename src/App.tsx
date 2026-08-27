@@ -23,6 +23,7 @@ import { useThemeStore } from "./stores/theme";
 import { useLobbyMusicStore } from "./stores/lobbyMusic";
 import { useNotificationsStore } from "./stores/notifications";
 import { useSettingsStore } from "./stores/settings";
+import { startOsToastPolling } from "./lib/osToasts";
 import { useContextDockStore } from "./stores/contextDock";
 import { useDownloadStore } from "./typlibs";
 import { useAppStore } from "./userstore";
@@ -30,6 +31,7 @@ import type { StartupPhase } from "./types/startup";
 import { startLaunchLifecycle } from "./lib/launchLifecycle";
 import {
   lobbyAudioStart,
+  lobbyAudioStop,
   lobbyAudioUnlock,
   reloadLobbyAudio,
 } from "./lib/lobbyAudio";
@@ -154,6 +156,12 @@ function App() {
   }, []);
 
   useEffect(() => {
+    return startOsToastPolling(() =>
+      useNotificationsStore.getState().refresh(),
+    );
+  }, []);
+
+  useEffect(() => {
     const controller = new AbortController();
     let cancelled = false;
     const startedAt = Date.now();
@@ -164,11 +172,18 @@ function App() {
 
     const beginLobbyBeforeReady = async () => {
       const onLaunch = useSettingsStore.getState().settings.lobbyMusicOnLaunch;
-      if (!onLaunch) {
-        // Stale prefs defaulted this to false; still start unless explicitly muted.
-        logger.info("Lobby music on launch is off — starting anyway (pause anytime)");
-      }
       const lobby = useLobbyMusicStore.getState();
+      // Respect settings + persisted mute/pause — never force-start over user intent.
+      const shouldPlay =
+        onLaunch && !lobby.muted && lobby.playing && lobby.volume > 0;
+      if (!shouldPlay) {
+        lobby.setPlaying(false);
+        void lobbyAudioStop();
+        logger.info(
+          `Lobby music skipped at boot (onLaunch=${onLaunch}, muted=${lobby.muted}, playing=${lobby.playing})`,
+        );
+        return;
+      }
       lobby.setPlaying(true);
       // Fire-and-forget: do not block first paint on audio decode.
       void lobbyAudioStart(lobby.volume, lobby.muted).catch((err) => {

@@ -7,6 +7,7 @@ export const HOME_BUILDS_SIDE = "Builds";
 /** Home tab sub-pages routed through HomePage instead of BuildsPage. */
 export const HOME_SUB_ROUTES = new Set([
   "Updates",
+  "Feed",
   "Friends",
   "Discord",
   "Settings",

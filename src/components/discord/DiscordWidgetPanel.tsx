@@ -102,6 +102,108 @@ export function DiscordWidgetPanel({
         <ErrorState error={error} errorCode={errorCode} onRetry={refresh} />
       ) : data ? (
         <>
+          {(() => {
+            const playing = data.members.filter((m) => m.game?.name);
+            const voiceMembers = data.members.filter((m) => m.channel_id);
+            const channels = [...(data.channels ?? [])].sort(
+              (a, b) => a.position - b.position,
+            );
+            const channelName = (id: string | undefined) =>
+              channels.find((c) => c.id === id)?.name || "Voice";
+            return (
+              <>
+                {playing.length > 0 ? (
+                  <div className="border-b border-white/6 bg-primary-base/8 px-4 py-2.5">
+                    <div className="flex items-center justify-between gap-2 mb-1.5">
+                      <span className="text-[10px] font-semibold uppercase tracking-wider text-primary-base">
+                        Now playing
+                      </span>
+                      <span className="text-[10px] tabular-nums text-text-muted">
+                        {playing.length}
+                      </span>
+                    </div>
+                    <div className="flex flex-wrap gap-1.5">
+                      {playing.slice(0, 8).map((m) => (
+                        <span
+                          key={m.id}
+                          className="inline-flex items-center gap-1.5 rounded-lg border border-white/10 bg-black/25 px-2 py-1 text-[10px] text-text-secondary"
+                        >
+                          <img
+                            src={memberAvatar(m)}
+                            alt=""
+                            className="h-4 w-4 rounded-full"
+                          />
+                          <span className="truncate max-w-28">{m.username}</span>
+                          <span className="text-text-disabled truncate max-w-24">
+                            {m.game?.name}
+                          </span>
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                ) : null}
+
+                {voiceMembers.length > 0 ? (
+                  <div className="border-b border-white/6 px-4 py-2.5">
+                    <div className="mb-2 text-[10px] font-semibold uppercase tracking-wider text-text-muted">
+                      Voice rooms
+                    </div>
+                    <div className="flex flex-col gap-2">
+                      {[
+                        ...new Set(
+                          voiceMembers.map((m) => m.channel_id).filter(Boolean),
+                        ),
+                      ].map((channelId) => {
+                        const inRoom = voiceMembers.filter(
+                          (m) => m.channel_id === channelId,
+                        );
+                        return (
+                          <div
+                            key={channelId}
+                            className="rounded-xl border border-white/8 bg-black/20 px-3 py-2"
+                          >
+                            <div className="mb-1.5 text-[11px] font-semibold text-text-primary">
+                              {channelName(channelId)}
+                              <span className="ml-2 text-[10px] font-normal text-text-muted">
+                                {inRoom.length}
+                              </span>
+                            </div>
+                            <div className="flex flex-wrap gap-2">
+                              {inRoom.map((m) => (
+                                <span
+                                  key={m.id}
+                                  className="inline-flex items-center gap-1.5 text-[10px] text-text-secondary"
+                                  title={[
+                                    m.mute || m.self_mute ? "muted" : null,
+                                    m.deaf || m.self_deaf ? "deafened" : null,
+                                  ]
+                                    .filter(Boolean)
+                                    .join(", ") || undefined}
+                                >
+                                  <img
+                                    src={memberAvatar(m)}
+                                    alt=""
+                                    className="h-5 w-5 rounded-full border border-white/10"
+                                  />
+                                  {m.username}
+                                  {m.mute || m.self_mute ? (
+                                    <span className="text-text-disabled">M</span>
+                                  ) : null}
+                                  {m.deaf || m.self_deaf ? (
+                                    <span className="text-text-disabled">D</span>
+                                  ) : null}
+                                </span>
+                              ))}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                ) : null}
+              </>
+            );
+          })()}
           <div className="border-b border-white/6 px-4 py-2.5">
             <div className="flex items-center justify-between text-[11px]">
               <span className="text-text-muted">Members online</span>

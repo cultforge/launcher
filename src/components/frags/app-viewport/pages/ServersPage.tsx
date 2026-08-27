@@ -288,19 +288,27 @@ function CombinedServersView({ mode = "all" }: { mode?: ServersViewMode }) {
   const canAddGuild = capabilitiesForRole(
     membershipForUser(members, activeGuildId, userId)?.role,
   ).manageServers;
+  const isGuildMember = Boolean(
+    activeGuildId && membershipForUser(members, activeGuildId, userId),
+  );
 
   useEffect(() => {
-    if (activeGuildId) void hydrateGuildServers(activeGuildId);
+    if (activeGuildId && isGuildMember) {
+      void hydrateGuildServers(activeGuildId);
+    }
     void refreshPersonal();
-  }, [activeGuildId, hydrateGuildServers, refreshPersonal]);
+  }, [activeGuildId, hydrateGuildServers, refreshPersonal, isGuildMember]);
 
   useEffect(() => {
-    ensurePresence(activeGuildId || null);
-  }, [activeGuildId, ensurePresence]);
+    ensurePresence(isGuildMember ? activeGuildId || null : null);
+  }, [activeGuildId, ensurePresence, isGuildMember]);
 
   const guildAddresses = useMemo(
-    () => servers.map((s) => guildServerJoinAddress(s)).filter(Boolean),
-    [servers],
+    () =>
+      (isGuildMember ? servers : [])
+        .map((s) => guildServerJoinAddress(s))
+        .filter(Boolean),
+    [servers, isGuildMember],
   );
   const personalAddresses = useMemo(
     () =>
@@ -320,7 +328,7 @@ function CombinedServersView({ mode = "all" }: { mode?: ServersViewMode }) {
   >({});
 
   useEffect(() => {
-    if (!activeGuildId) {
+    if (!activeGuildId || !isGuildMember) {
       setRuntimeByServer({});
       return;
     }
@@ -345,7 +353,7 @@ function CombinedServersView({ mode = "all" }: { mode?: ServersViewMode }) {
       cancelled = true;
       window.clearInterval(id);
     };
-  }, [activeGuildId]);
+  }, [activeGuildId, isGuildMember]);
 
   const markRecent = (serverId: string) => {
     touchRecent(serverId);
@@ -384,7 +392,7 @@ function CombinedServersView({ mode = "all" }: { mode?: ServersViewMode }) {
     return list;
   };
 
-  const guildList = filterGuild(servers);
+  const guildList = isGuildMember ? filterGuild(servers) : [];
   const personalList = filterPersonal(personal);
 
   const featured = mode === "all" ? guildList[0] : null;
@@ -430,7 +438,9 @@ function CombinedServersView({ mode = "all" }: { mode?: ServersViewMode }) {
               ? "Servers you starred for quick access."
               : mode === "recent"
                 ? "Servers you opened recently in the launcher."
-                : "Guild worlds and your personal servers. Join from a guild card or manage your own worlds."}
+                : isGuildMember
+                  ? "Guild worlds and your personal servers. Join from a guild card or manage your own worlds."
+                  : "Your personal servers. Join a guild to see that guild’s worlds here."}
           </p>
         </div>
         {mode === "all" ? (

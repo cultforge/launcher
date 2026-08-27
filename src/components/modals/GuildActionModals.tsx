@@ -27,6 +27,7 @@ import {
   capabilitiesForRole,
   membershipForUser,
 } from "../../lib/guildPermissions";
+import { CopyButton } from "../CopyButton";
 import {
   combineLocalDateTime,
   toLocalDateValue,
@@ -350,16 +351,12 @@ export function GuildActionModals() {
                 >
                   {inviteUrl}
                 </a>
-                <button
-                  type="button"
-                  className="mt-2 text-[10px] font-semibold text-text-secondary cursor-pointer hover:text-text-primary"
-                  onClick={() => {
-                    void navigator.clipboard.writeText(inviteUrl);
-                    toast.success("Invite link copied");
-                  }}
-                >
-                  Copy link
-                </button>
+                <CopyButton
+                  text={inviteUrl}
+                  label="Copy link"
+                  successMessage="Invite link copied"
+                  className="mt-2"
+                />
               </div>
             ) : null}
             <button

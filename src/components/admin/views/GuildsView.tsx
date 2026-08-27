@@ -109,6 +109,26 @@ export function GuildsView() {
       ),
     },
     {
+      key: "members",
+      header: "Members",
+      render: (r) =>
+        String(r.member_count ?? r.members ?? r.memberCount ?? "—"),
+    },
+    {
+      key: "tag",
+      header: "Tag",
+      render: (r) => String(r.tag ?? r.slug ?? "—"),
+    },
+    {
+      key: "owner",
+      header: "Owner",
+      render: (r) => (
+        <span className="font-mono text-[10px]">
+          {String(r.owner_name ?? r.owner_id ?? r.owner ?? "—")}
+        </span>
+      ),
+    },
+    {
       key: "listed",
       header: "Listed",
       render: (r) =>

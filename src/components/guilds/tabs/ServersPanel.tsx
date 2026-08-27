@@ -20,15 +20,22 @@ import { useGuildStore } from "../../../stores/guilds";
 import { useGuildAgentPresenceStore } from "../../../stores/guildAgentPresence";
 import { goHomeBuilds } from "../../../lib/homeNav";
 import { EntityImage } from "../../EntityImage";
+import { eventText } from "../ActivityFeedPanel";
 
-function presenceEventLabel(eventType: string, name: string | null | undefined): string {
-  const who = (name || "Someone").trim();
-  const t = eventType.toLowerCase();
-  if (t.includes("join")) return `${who} joined`;
-  if (t.includes("leave") || t.includes("quit")) return `${who} left`;
-  if (t.includes("death") || t.includes("died")) return `${who} died`;
-  if (t.includes("advancement")) return `${who} got an advancement`;
-  return `${who} · ${eventType}`;
+function presenceEventLabel(
+  event: {
+    eventType: string;
+    minecraftName?: string | null;
+    payload?: Record<string, unknown> | null;
+  },
+): string {
+  return eventText({
+    id: "",
+    eventType: event.eventType,
+    minecraftName: event.minecraftName,
+    payload: event.payload ?? null,
+    raw: {},
+  });
 }
 
 function runtimeLooksOnline(state: string | null | undefined): boolean {
@@ -791,7 +798,7 @@ export function ServersPanel() {
                       key={ev.id}
                       className="truncate text-[10px] text-text-muted"
                     >
-                      {presenceEventLabel(ev.eventType, ev.minecraftName)}
+                      {presenceEventLabel(ev)}
                     </li>
                   ))}
                 </ul>

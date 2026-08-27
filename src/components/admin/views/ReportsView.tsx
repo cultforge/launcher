@@ -12,12 +12,13 @@ import {
   OpsDrawer,
   OpsEmpty,
   OpsError,
-  OpsInput,
   OpsPageHeader,
+  OpsSelect,
   OpsTable,
   OpsToolbar,
   type OpsColumn,
 } from "../ui/ops";
+import { OpsJsonBlock } from "../ui/OpsJsonBlock";
 
 type ReportRow = Record<string, unknown> & { id: string };
 
@@ -29,7 +30,7 @@ export function ReportsView() {
   const [rows, setRows] = useState<ReportRow[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const [kind, setKind] = useState("summary");
+  const [kind, setKind] = useState("users_summary");
   const [detailId, setDetailId] = useState<string | null>(null);
   const [detail, setDetail] = useState<Record<string, unknown> | null>(null);
 
@@ -74,7 +75,7 @@ export function ReportsView() {
     }
     setBusy(true);
     try {
-      await AdminClient.runReport({ kind });
+      await AdminClient.runReport({ kind, persist: true });
       toast.success("Report started");
       await load();
     } catch (err) {
@@ -124,12 +125,17 @@ export function ReportsView() {
         }
       />
       <OpsToolbar>
-        <OpsInput
-          placeholder="Report kind"
+        <OpsSelect
           value={kind}
           onChange={(e) => setKind(e.target.value)}
-          className="w-40"
-        />
+          className="w-48"
+          aria-label="Report kind"
+        >
+          <option value="users_summary">Users summary</option>
+          <option value="guilds_summary">Guilds summary</option>
+          <option value="chloe_usage">Chloe usage</option>
+          <option value="security_sessions">Security sessions</option>
+        </OpsSelect>
         <OpsButton
           variant="primary"
           disabled={!capabilityActive || busy || !kind}
@@ -156,9 +162,7 @@ export function ReportsView() {
         {!detail ? (
           <OpsEmpty title="Loading…" />
         ) : (
-          <pre className="overflow-auto rounded-md border border-white/10 bg-black/40 p-3 text-[10px] font-mono text-text-secondary max-h-[60vh]">
-            {JSON.stringify(detail, null, 2)}
-          </pre>
+          <OpsJsonBlock value={detail} title="report" defaultOpen />
         )}
       </OpsDrawer>
     </div>

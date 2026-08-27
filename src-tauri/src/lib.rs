@@ -26,6 +26,8 @@ mod local_assistant;
 mod mping;
 mod win_proc;
 mod servers_dat;
+mod os_toast;
+mod cpu_pin;
 
 static PORT: Lazy<Mutex<u16>> = Lazy::new(|| {
     let listener = TcpListener::bind("127.0.0.1:0").expect("Failed to bind to free port");
@@ -446,6 +448,7 @@ pub fn run() {
             launch::write_crash_report,
             launch::minimize_to_tray,
             launch::restore_from_tray,
+            os_toast::show_os_notification,
             secrets::secret_has,
             secrets::secret_set,
             secrets::secret_clear,

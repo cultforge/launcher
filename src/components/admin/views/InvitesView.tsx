@@ -16,6 +16,7 @@ import {
   OpsToolbar,
   type OpsColumn,
 } from "../ui/ops";
+import { formatRelativeTime } from "../../../lib/adminFormatters";
 
 type InviteRow = Record<string, unknown> & { id: string; code: string };
 
@@ -69,7 +70,32 @@ export function InvitesView() {
     {
       key: "uses",
       header: "Uses",
-      render: (r) => String(r.uses ?? r.use_count ?? "—"),
+      render: (r) => {
+        const used = Number(r.uses ?? r.use_count ?? r.used ?? 0);
+        const max = r.max_uses ?? r.maxUses;
+        const rem = r.remaining;
+        if (max != null && max !== "") return `${used} / ${max}`;
+        if (rem != null && rem !== "") return `${used} used · ${rem} left`;
+        return String(used || "—");
+      },
+    },
+    {
+      key: "expires",
+      header: "Expires",
+      render: (r) => (
+        <span className="text-[11px] text-text-muted">
+          {formatRelativeTime(r.expires_at ?? r.expires) || "—"}
+        </span>
+      ),
+    },
+    {
+      key: "by",
+      header: "Created by",
+      render: (r) => (
+        <span className="font-mono text-[10px]">
+          {String(r.created_by ?? r.creator_id ?? r.owner_id ?? "—")}
+        </span>
+      ),
     },
     {
       key: "act",

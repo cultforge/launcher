@@ -35,6 +35,36 @@ export function unwrapAdminData<T = unknown>(raw: unknown): T {
   return raw as T;
 }
 
+/** Peel common nested metric envelopes into a flat record for Overview/Auth. */
+export function unwrapAdminRecord(raw: unknown): Record<string, unknown> | null {
+  let cur = asRecord(unwrapAdminData(raw)) ?? asRecord(raw);
+  if (!cur) return null;
+  for (const k of [
+    "metrics",
+    "live",
+    "snapshot",
+    "overview",
+    "stats",
+    "services",
+    "auth",
+    "result",
+  ]) {
+    const nested = asRecord(cur[k]);
+    if (!nested) continue;
+    const hasUsefulTop =
+      "uptime" in cur ||
+      "rpm" in cur ||
+      "aggregate" in cur ||
+      "pending" in cur ||
+      "providers" in cur ||
+      "logins_24h" in cur;
+    if (!hasUsefulTop) {
+      cur = { ...nested, ...cur };
+    }
+  }
+  return cur;
+}
+
 export function extractAdminRows(raw: unknown): Record<string, unknown>[] {
   const data = unwrapAdminData(raw);
   if (Array.isArray(data)) {
@@ -53,6 +83,55 @@ export function extractAdminRows(raw: unknown): Record<string, unknown>[] {
     }
   }
   return [];
+}
+
+/** Cursor for list pagination — prefer server next_cursor over last row id. */
+export function extractAdminCursor(raw: unknown): string | null {
+  const data = asRecord(unwrapAdminData(raw)) ?? asRecord(raw);
+  if (!data) return null;
+  for (const key of ["next_cursor", "cursor", "next", "continuation"]) {
+    const c = data[key];
+    if (typeof c === "string" && c.trim()) return c.trim();
+  }
+  return null;
+}
+
+/** Pick first finite number from alias keys (nested one level). */
+export function pickAdminNumber(
+  row: Record<string, unknown> | null | undefined,
+  keys: string[],
+): number | null {
+  if (!row) return null;
+  for (const key of keys) {
+    const v = row[key];
+    if (typeof v === "number" && Number.isFinite(v)) return v;
+    if (typeof v === "string" && v.trim() && !Number.isNaN(Number(v))) {
+      return Number(v);
+    }
+    const nested = asRecord(v);
+    if (nested) {
+      for (const nk of ["value", "count", "ms", "total"]) {
+        const nv = nested[nk];
+        if (typeof nv === "number" && Number.isFinite(nv)) return nv;
+      }
+    }
+  }
+  return null;
+}
+
+export function pickAdminString(
+  row: Record<string, unknown> | null | undefined,
+  keys: string[],
+  fallback = "—",
+): string {
+  if (!row) return fallback;
+  for (const key of keys) {
+    const v = row[key];
+    if (typeof v === "string" && v.trim()) return v.trim();
+    if (typeof v === "number" && Number.isFinite(v)) return String(v);
+    if (typeof v === "boolean") return v ? "yes" : "no";
+  }
+  return fallback;
 }
 
 function buildQuery(

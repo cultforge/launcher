@@ -57,6 +57,7 @@ export type LaunchMinecraftNativeArgs = {
   width?: number | null;
   height?: number | null;
   dedicatedGpu?: boolean | null;
+  cpuPin?: boolean | null;
   wrapper?: string | null;
   serverList?: Array<{ name: string; ip: string }> | null;
 };
@@ -354,6 +355,7 @@ export async function launchMinecraft(build: BuildInstance): Promise<boolean> {
       width: width ?? null,
       height: height ?? null,
       dedicatedGpu: cfg.dedicatedGpu,
+      cpuPin: cfg.cpuPin === true,
       wrapper: cfg.wrapper?.trim() || null,
       serverList: serverList.length ? serverList : null,
     };

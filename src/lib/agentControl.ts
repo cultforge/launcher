@@ -255,16 +255,34 @@ export type ServerControlContext = {
 
 export type ControlTransport = "local" | "remote";
 
-export type ServerRunState = "running" | "stopped" | "unknown";
+export type ServerRunState =
+  | "running"
+  | "stopped"
+  | "starting"
+  | "stopping"
+  | "unknown";
 
 export function runningStateFromText(
   state: string | null | undefined,
 ): ServerRunState {
   const s = (state ?? "").toLowerCase();
-  if (s.includes("run") || s.includes("online") || s.includes("started")) {
+  if (s.includes("start") && !s.includes("stop") && !s.includes("restart")) {
+    return "starting";
+  }
+  if (s.includes("stopping") || (s.includes("stop") && s.includes("ing"))) {
+    return "stopping";
+  }
+  if (
+    s.includes("run") ||
+    s.includes("online") ||
+    s.includes("started") ||
+    s.includes("alive")
+  ) {
     return "running";
   }
-  if (s.includes("stop") || s.includes("offline")) return "stopped";
+  if (s.includes("stop") || s.includes("offline") || s.includes("idle")) {
+    return "stopped";
+  }
   return "unknown";
 }
 

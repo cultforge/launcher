@@ -2,6 +2,7 @@ import UpdatesPage from "./UpdatesPage";
 import FriendsPage from "./FriendsPage";
 import SettingsPage from "./SettingsPage";
 import DiscordPage from "./DiscordPage";
+import DiscoverPage from "./DiscoverPage";
 import {
   staggerContainer,
   fadeUp,
@@ -461,6 +462,7 @@ function HomeDashboard() {
 function HomePage() {
   const sideItem = useNavigationStore((s) => s.sideItem);
   if (sideItem === "Updates") return <UpdatesPage />;
+  if (sideItem === "Feed" || sideItem === "Discover") return <DiscoverPage />;
   if (sideItem === "Friends") return <FriendsPage />;
   if (sideItem === "Discord") return <DiscordPage />;
   if (sideItem === "Settings") return <SettingsPage />;

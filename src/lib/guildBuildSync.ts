@@ -313,6 +313,75 @@ async function runSyncPlan(
 
   await waitForJob(jobId);
 
+  // Verify disk matches the manifest — incomplete first installs used to mark
+  // "synced" while mods were still missing.
+  try {
+    const verify = await checkGuildManifestSync(
+      location,
+      files,
+      excludes,
+      syncMode,
+    );
+    if (!verify.synced) {
+      const remaining = [...verify.missing, ...verify.mismatched];
+      if (remaining.length > 0) {
+        logger.warn(
+          `Guild sync incomplete (${remaining.length} files) — retrying remaining`,
+        );
+        if (!opts.quiet) {
+          toast.message("Finishing install…", {
+            description: `${remaining.length} file${remaining.length === 1 ? "" : "s"} still needed.`,
+          });
+        }
+        const retryPlan: GuildManifestSyncPlan = {
+          ...plan,
+          jobId: "",
+          onlyPaths: remaining,
+        };
+        const retryJobId = await startGuildManifestSync(retryPlan);
+        opts.onJob?.(retryJobId);
+        useDownloadStore.getState().enqueue({
+          id: retryJobId,
+          jobId: retryJobId,
+          name: `${release.name} (repair)`,
+          totalMb:
+            fetchBytesForPaths(files, remaining, syncMode) / (1024 * 1024),
+          totalBytes: Math.max(
+            fetchBytesForPaths(files, remaining, syncMode),
+            1,
+          ),
+          doneMb: 0,
+          progress: 0,
+          status: "active",
+          phase: "downloading",
+        });
+        await waitForJob(retryJobId);
+        const verify2 = await checkGuildManifestSync(
+          location,
+          files,
+          excludes,
+          syncMode,
+        );
+        if (!verify2.synced) {
+          const still = verify2.missing.length + verify2.mismatched.length;
+          throw new Error(
+            `Guild install incomplete — ${still} file${still === 1 ? "" : "s"} still missing after retry`,
+          );
+        }
+      }
+    }
+  } catch (err) {
+    if (
+      err instanceof Error &&
+      err.message.startsWith("Guild install incomplete")
+    ) {
+      throw err;
+    }
+    logger.warn(
+      `Guild sync verify failed: ${err instanceof Error ? err.message : String(err)}`,
+    );
+  }
+
   useBuildStore.getState().patchBuild(instanceId, {
     syncStatus: "synced",
     status: "Ready",
@@ -325,6 +394,11 @@ async function runSyncPlan(
   await rescanLibrary(location);
 
   return jobId;
+}
+
+/** Force a full reinstall/repair of a guild-managed local instance. */
+export async function reinstallGuildBuild(instanceId: string): Promise<void> {
+  await syncManagedBuild(instanceId, { force: true, quiet: false });
 }
 
 /**
