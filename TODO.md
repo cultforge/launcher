@@ -8,7 +8,7 @@ Target ship semver: **2.4.4**. Stamps: **`2.4.4`** (production).
 
 - [x] Product work for 2.4.4 (roles/server perms, live share, lobby, Gen2 prune, UI polish)
 - [ ] Admin / installed-app smoke signed off
-- [ ] Publish `v2.4.4` (GitHub Actions: Windows + macOS + Linux) + `latest.json`
+- [x] Publish `v2.4.4` tag pushed — Actions building (Windows + macOS + Linux); follow with `latest.json` when green
 
 ## Release: 2.4.3
 
