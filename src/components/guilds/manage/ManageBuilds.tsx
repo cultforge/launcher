@@ -32,10 +32,27 @@ export function ManageBuilds() {
   const onRefreshManifest = async (buildId: string, name: string) => {
     setBusyId(`manifest-${buildId}`);
     try {
-      const manifest = await refreshGuildBuildInstallManifest(guildId, buildId);
-      toast.success(`Manifest refreshed for ${name}`, {
-        description: `${manifest.files.length} files ready for install.`,
-      });
+      const { manifest, unresolved } = await refreshGuildBuildInstallManifest(
+        guildId,
+        buildId,
+      );
+      if (unresolved.length) {
+        toast.message(`Install plan has ${unresolved.length} unresolved pin(s)`, {
+          description: unresolved
+            .slice(0, 3)
+            .map(
+              (u) =>
+                `${u.slug || u.name || "?"}${u.version ? `@${u.version}` : ""}${
+                  u.reason ? `: ${u.reason}` : ""
+                }`,
+            )
+            .join(" · "),
+        });
+      } else {
+        toast.success(`Manifest refreshed for ${name}`, {
+          description: `${manifest.files.length} files ready for install.`,
+        });
+      }
     } catch (err) {
       toast.error(
         err instanceof Error ? err.message : "Could not refresh install manifest",
@@ -144,7 +161,7 @@ export function ManageBuilds() {
                     >
                       {busyId === `manifest-${release.id}`
                         ? "…"
-                        : "Refresh manifest"}
+                        : "Refresh install plan"}
                     </button>
                     <button
                       type="button"

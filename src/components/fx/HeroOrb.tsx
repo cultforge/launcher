@@ -3,7 +3,7 @@ import { Canvas, useFrame } from "@react-three/fiber";
 import { Float, MeshDistortMaterial } from "@react-three/drei";
 import { useRef } from "react";
 import type { Mesh } from "three";
-import { BUILTIN_THEMES } from "../../data/themes";
+import { BUILTIN_THEMES_ALL } from "../../data/themes";
 import { useThemeStore } from "../../stores/theme";
 
 function OrbMesh({ color, emissive }: { color: string; emissive: string }) {
@@ -51,9 +51,9 @@ export function HeroOrb({ className = "" }: { className?: string }) {
   const activeThemeId = useThemeStore((s) => s.activeThemeId);
   const customThemes = useThemeStore((s) => s.customThemes);
   const theme =
-    [...BUILTIN_THEMES, ...customThemes].find(
+    [...BUILTIN_THEMES_ALL, ...customThemes].find(
       (candidate) => candidate.id === activeThemeId,
-    ) ?? BUILTIN_THEMES[0];
+    ) ?? BUILTIN_THEMES_ALL[0];
 
   if (reduced) {
     return (

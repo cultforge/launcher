@@ -6,6 +6,13 @@ export type MemberStatus = "online" | "idle" | "offline";
 export type EventType = "raid" | "contest" | "drive" | "social" | "custom";
 export type RankingMetric = "xp" | "kills" | "playtime";
 
+export type GuildVerificationStatus =
+  | "unverified"
+  | "pending"
+  | "verified"
+  | "rejected"
+  | "suspended";
+
 export type Guild = {
   id: string;
   name: string;
@@ -23,6 +30,8 @@ export type Guild = {
   discordSource?: string;
   /** CultForge account id of the guild owner when known from the manifest. */
   ownerId?: string;
+  /** Platform verification for competitive climb (API SoT). */
+  verificationStatus?: GuildVerificationStatus;
 };
 
 export type GuildMember = {
@@ -162,6 +171,8 @@ export type GuildServer = {
   status: "online" | "maintenance" | "offline";
   requiredBuildId: string;
   requiredBuildVersion: string;
+  /** Stable primary agent hint from API (binding is_primary is authoritative). */
+  preferredAgentNodeId?: string | null;
 };
 
 /** Host:port used for join, clipboard, and mping. */

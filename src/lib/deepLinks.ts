@@ -12,8 +12,12 @@ export type CultforgeDeepLink =
   | { kind: "guild-news"; guildId: string; newsId: string }
   | { kind: "guild-events"; guildId: string; eventId: string }
   | { kind: "guild-channel"; guildId: string; channelId: string }
+  | { kind: "guild-rankings"; guildId: string }
   | { kind: "dm"; userId: string }
   | { kind: "profile"; userId: string }
+  | { kind: "rankings-players" }
+  | { kind: "rankings-guilds" }
+  | { kind: "lobby"; lobbyId: string; inviteCode?: string }
   | { kind: "launcher"; target: string; section?: string }
   | { kind: "agent-link"; code: string };
 
@@ -84,6 +88,9 @@ export function parseCultforgeDeepLink(
     if (parts[2] === "channel" && parts[3]) {
       return { kind: "guild-channel", guildId, channelId: parts[3] };
     }
+    if (parts[2] === "rankings") {
+      return { kind: "guild-rankings", guildId };
+    }
     return { kind: "guild", guildId };
   }
   if (parts[0] === "dm" && parts[1]) {
@@ -91,6 +98,15 @@ export function parseCultforgeDeepLink(
   }
   if (parts[0] === "profile" && parts[1]) {
     return { kind: "profile", userId: parts[1] };
+  }
+  if (parts[0] === "rankings" && parts[1] === "players") {
+    return { kind: "rankings-players" };
+  }
+  if (parts[0] === "rankings" && parts[1] === "guilds") {
+    return { kind: "rankings-guilds" };
+  }
+  if (parts[0] === "lobby" && parts[1]) {
+    return { kind: "lobby", lobbyId: parts[1] };
   }
   return null;
 }
@@ -117,7 +133,15 @@ export function buildCultforgeDeepLink(link: CultforgeDeepLink): string {
     case "dm":
       return `cultforge://dm/${enc(link.userId)}`;
     case "profile":
-      return `cultforge://profile/${enc(link.userId)}`;
+      return `cultforge://nav/profile/${enc(link.userId)}`;
+    case "guild-rankings":
+      return `cultforge://nav/guild/${enc(link.guildId)}/rankings`;
+    case "rankings-players":
+      return `cultforge://nav/rankings/players`;
+    case "rankings-guilds":
+      return `cultforge://nav/rankings/guilds`;
+    case "lobby":
+      return `cultforge://nav/lobby/${enc(link.lobbyId)}`;
     case "agent-link":
       return `cultforge://agent/link/${enc(link.code)}`;
     case "launcher": {
@@ -145,7 +169,15 @@ export function buildCultforgeWebLink(link: CultforgeDeepLink): string | null {
     case "guild-channel":
       return `https://guilds.cultforge.com/${enc(link.guildId)}/channels/${enc(link.channelId)}`;
     case "profile":
-      return `https://guilds.cultforge.com/players/${enc(link.userId)}`;
+      return `https://api.cultforge.com/u/${enc(link.userId)}`;
+    case "guild-rankings":
+      return `https://guilds.cultforge.com/${enc(link.guildId)}/rankings`;
+    case "rankings-players":
+      return `https://api.cultforge.com/rankings/players`;
+    case "rankings-guilds":
+      return `https://api.cultforge.com/rankings/guilds`;
+    case "lobby":
+      return `https://api.cultforge.com/lobby/${enc(link.inviteCode || link.lobbyId)}`;
     case "agent-link":
       return `https://invite.cultforge.com/agent/${enc(link.code)}`;
     case "dm":
@@ -233,6 +265,27 @@ export function navigateCultforgeDeepLink(href: string): boolean {
       return true;
     case "profile":
       useProfileRouteStore.getState().openFriend(link.userId);
+      return true;
+    case "guild-rankings":
+      guilds.setActiveGuild(link.guildId);
+      guilds.setHubTab("Rankings");
+      guilds.setDiscoverOpen(false);
+      guilds.clearContentFocus();
+      nav.setPrimaryTab("Guilds" as PrimaryTab);
+      nav.setSideItem("Guilds");
+      return true;
+    case "rankings-players":
+    case "rankings-guilds":
+      guilds.setHubTab("Rankings");
+      nav.setPrimaryTab("Guilds" as PrimaryTab);
+      nav.setSideItem("Guilds");
+      return true;
+    case "lobby":
+      void import("../stores/partyLobby").then(({ usePartyLobbyStore }) => {
+        void usePartyLobbyStore.getState().openLobby(link.lobbyId);
+      });
+      nav.setPrimaryTab("Home" as PrimaryTab);
+      nav.setSideItem("Friends");
       return true;
     case "launcher": {
       const target = link.target;

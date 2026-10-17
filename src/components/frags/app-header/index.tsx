@@ -87,7 +87,7 @@ function BadgeButton({
       onClick={onClick}
       aria-label={ariaLabel ?? icon}
       title={title ?? icon}
-      className="relative flex h-8 w-8 items-center justify-center rounded-full text-text-muted transition-all duration-200 hover:text-white hover:bg-bg-elevated/80 cursor-pointer active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-base/70"
+      className="cf-header-util relative flex h-8 w-8 items-center justify-center rounded-full text-text-muted transition-all duration-200 hover:text-white hover:bg-bg-elevated/80 cursor-pointer active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-base/70"
     >
       <Icon icon={AppIcons[icon]} size={16} />
       {badge && count !== undefined && count > 0 ? (

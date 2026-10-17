@@ -901,7 +901,7 @@ export function ThemeManager() {
           <>
           <div>
             <div className="text-[9px] uppercase tracking-[0.15em] text-text-muted mb-2">
-              CultForge presets
+              Presets
             </div>
             <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-2">
               {BUILTIN_THEMES.map((theme) => (

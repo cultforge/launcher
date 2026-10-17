@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import { RefreshCw } from "lucide-react";
 
@@ -6,7 +6,7 @@ import {
 
   isAgentNodeOnline,
 
-  listAccessibleCultAgentNodes,
+  listMyCultAgentNodes,
 
   listAgentBindings,
 
@@ -18,11 +18,7 @@ import {
 
 import { copyText, truncateMiddle } from "../../../../lib/copyText";
 
-import { joinedGuilds } from "../../../../data/guilds";
-
 import { useAgentControlStore } from "../../../../stores/agentControl";
-
-import { useGuildStore } from "../../../../stores/guilds";
 
 import { Icon } from "../../../ico";
 
@@ -240,8 +236,6 @@ export default function MyPcsPage() {
 
   );
 
-  const activeGuildId = useGuildStore((s) => s.activeGuildId);
-
 
 
   const [nodes, setNodes] = useState<CultAgentNode[]>([]);
@@ -264,18 +258,6 @@ export default function MyPcsPage() {
 
 
 
-  const guildIds = useMemo(() => {
-
-    const ids = new Set(joinedGuilds().map((g) => g.id));
-
-    if (activeGuildId) ids.add(activeGuildId);
-
-    return Array.from(ids);
-
-  }, [activeGuildId]);
-
-
-
   const refresh = useCallback(async () => {
 
     setLoading(true);
@@ -284,7 +266,8 @@ export default function MyPcsPage() {
 
     try {
 
-      const list = await listAccessibleCultAgentNodes(guildIds, { dedupe: true });
+      // FIX-UI-1: owned nodes only — never merge guild agent lists.
+      const list = await listMyCultAgentNodes(50, { dedupe: true });
 
       setNodes(list);
 
@@ -340,7 +323,7 @@ export default function MyPcsPage() {
 
     }
 
-  }, [guildIds]);
+  }, []);
 
 
 
@@ -367,18 +350,6 @@ export default function MyPcsPage() {
     }
 
   }, [selectedNodeId]);
-
-
-
-  const personalNodes = useMemo(
-
-    () => nodes.filter((n) => !n.guildId),
-
-    [nodes],
-
-  );
-
-  const guildNodes = useMemo(() => nodes.filter((n) => n.guildId), [nodes]);
 
 
 
@@ -436,9 +407,9 @@ export default function MyPcsPage() {
 
           <p className="text-[11px] text-text-muted mt-1 max-w-lg">
 
-            Computers running CultAgent. Tap a PC to start, stop, and host
+            PCs you own (GET /v1/agents). Guild-shared machines appear under
 
-            servers.
+            guild Servers — not here.
 
           </p>
 
@@ -560,9 +531,7 @@ export default function MyPcsPage() {
 
         <>
 
-          {personalNodes.length > 0 ? (
-
-            <section className="flex flex-col gap-2">
+          <section className="flex flex-col gap-2">
 
               <h2 className="text-[10px] font-semibold uppercase tracking-wider text-text-disabled">
 
@@ -572,7 +541,7 @@ export default function MyPcsPage() {
 
               <div className="flex flex-col gap-2">
 
-                {personalNodes.map((node) => (
+                {nodes.map((node) => (
 
                   <PcRow
 
@@ -596,49 +565,6 @@ export default function MyPcsPage() {
               </div>
 
             </section>
-
-          ) : null}
-
-
-
-          {guildNodes.length > 0 ? (
-
-            <section className="flex flex-col gap-2">
-
-              <h2 className="text-[10px] font-semibold uppercase tracking-wider text-text-disabled">
-
-                Guild PCs
-
-              </h2>
-
-              <div className="flex flex-col gap-2">
-
-                {guildNodes.map((node) => (
-
-                  <PcRow
-
-                    key={node.id}
-
-                    node={node}
-
-                    hosting={hostingLabels(node.id)}
-
-                    selected={expandedId === node.id}
-
-                    onSelect={() => {
-                      setExpandedId(node.id);
-                      selectNode(node.id, selectedLocalServerId);
-                    }}
-
-                  />
-
-                ))}
-
-              </div>
-
-            </section>
-
-          ) : null}
 
         </>
 

@@ -49,60 +49,138 @@ function SelectedRow({
   selected,
   onChange,
   onView,
+  loader,
+  gameVersion,
+  projectType,
 }: {
   item: ModrinthPickWithOptional;
   allowOptionalToggle: boolean;
   selected: ModrinthPickWithOptional[];
   onChange: (next: ModrinthPickWithOptional[]) => void;
   onView: () => void;
+  loader?: string;
+  gameVersion?: string;
+  projectType: string;
 }) {
-  return (
-    <li className="build-basket-item group flex items-center gap-2 rounded-lg px-2 py-2 transition-colors hover:bg-white/4">
-      <span className="min-w-0 flex-1">
-        <span className="block truncate text-[12px] font-medium text-text-primary">
-          {item.name}
-        </span>
-        <span className="block truncate text-[10px] text-text-muted">
-          v{item.version}
-          {allowOptionalToggle && item.optional ? " · optional" : null}
-        </span>
-      </span>
-      {allowOptionalToggle ? (
-        <label className="flex shrink-0 items-center gap-1.5 text-[10px] text-text-muted cursor-pointer select-none">
-          <input
-            type="checkbox"
-            checked={Boolean(item.optional)}
-            onChange={(e) =>
-              onChange(
-                selected.map((s) =>
-                  s.projectId === item.projectId
-                    ? { ...s, optional: e.target.checked }
-                    : s,
-                ),
-              )
+  const [versions, setVersions] = useState<ModrinthVersion[]>([]);
+  const [loadingVersions, setLoadingVersions] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoadingVersions(true);
+    void getModrinthVersions(item.projectId || item.slug, {
+      gameVersions: gameVersion ? [gameVersion] : undefined,
+      loaders:
+        projectType === "mod" && loader && loader !== "vanilla"
+          ? [loader]
+          : undefined,
+    })
+      .then((list) => {
+        if (!cancelled) setVersions(list);
+      })
+      .catch(() => {
+        if (!cancelled) setVersions([]);
+      })
+      .finally(() => {
+        if (!cancelled) setLoadingVersions(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [item.projectId, item.slug, gameVersion, loader, projectType]);
+
+  const applyVersion = (version: ModrinthVersion) => {
+    const sourceUrl = primaryUrl(version);
+    onChange(
+      selected.map((s) =>
+        s.projectId === item.projectId
+          ? {
+              ...s,
+              version: version.version_number,
+              versionId: version.id,
+              sourceUrl: sourceUrl || s.sourceUrl,
             }
-            className="accent-primary-base"
-          />
-          Opt.
-        </label>
-      ) : null}
-      <button
-        type="button"
-        onClick={onView}
-        className="shrink-0 rounded-md px-2 py-1 text-[10px] font-medium text-primary-base hover:bg-primary-base/10 cursor-pointer"
-      >
-        View
-      </button>
-      <button
-        type="button"
-        aria-label={`Remove ${item.name}`}
-        className="shrink-0 rounded-md px-2 py-1 text-[10px] font-medium text-text-muted opacity-0 transition-opacity group-hover:opacity-100 hover:bg-state-error/10 hover:text-state-error cursor-pointer"
-        onClick={() =>
-          onChange(selected.filter((s) => s.projectId !== item.projectId))
-        }
-      >
-        Remove
-      </button>
+          : s,
+      ),
+    );
+  };
+
+  return (
+    <li className="build-basket-item group flex flex-col gap-1.5 rounded-lg px-2 py-2 transition-colors hover:bg-white/4">
+      <div className="flex items-center gap-2">
+        <span className="min-w-0 flex-1">
+          <span className="block truncate text-[12px] font-medium text-text-primary">
+            {item.name}
+          </span>
+          <span className="block truncate text-[10px] text-text-muted">
+            {item.slug}
+            {allowOptionalToggle && item.optional ? " · optional" : null}
+          </span>
+        </span>
+        {allowOptionalToggle ? (
+          <label className="flex shrink-0 items-center gap-1.5 text-[10px] text-text-muted cursor-pointer select-none">
+            <input
+              type="checkbox"
+              checked={Boolean(item.optional)}
+              onChange={(e) =>
+                onChange(
+                  selected.map((s) =>
+                    s.projectId === item.projectId
+                      ? { ...s, optional: e.target.checked }
+                      : s,
+                  ),
+                )
+              }
+              className="accent-primary-base"
+            />
+            Opt.
+          </label>
+        ) : null}
+        <button
+          type="button"
+          onClick={onView}
+          className="shrink-0 rounded-md px-2 py-1 text-[10px] font-medium text-primary-base hover:bg-primary-base/10 cursor-pointer"
+        >
+          View
+        </button>
+        <button
+          type="button"
+          aria-label={`Remove ${item.name}`}
+          className="shrink-0 rounded-md px-2 py-1 text-[10px] font-medium text-text-muted opacity-0 transition-opacity group-hover:opacity-100 hover:bg-state-error/10 hover:text-state-error cursor-pointer"
+          onClick={() =>
+            onChange(selected.filter((s) => s.projectId !== item.projectId))
+          }
+        >
+          Remove
+        </button>
+      </div>
+      <label className="flex items-center gap-2 text-[10px] text-text-muted">
+        Pin
+        <select
+          value={item.versionId || ""}
+          disabled={loadingVersions || versions.length === 0}
+          onChange={(e) => {
+            const v = versions.find((x) => x.id === e.target.value);
+            if (v) applyVersion(v);
+          }}
+          className="min-w-0 flex-1 rounded-md border border-white/10 bg-black/30 px-2 py-1 text-[11px] text-text-primary"
+          title="Modrinth version pin — always send a version on save"
+        >
+          {!item.versionId ? (
+            <option value="">
+              {item.version ? `v${item.version}` : "Pick version…"}
+            </option>
+          ) : null}
+          {versions.map((v) => (
+            <option key={v.id} value={v.id}>
+              {v.version_number}
+              {v.version_type && v.version_type !== "release"
+                ? ` (${v.version_type})`
+                : ""}
+            </option>
+          ))}
+        </select>
+      </label>
     </li>
   );
 }
@@ -390,7 +468,7 @@ export function ModrinthCatalogPicker({
       <ul className="flex flex-col gap-0.5 p-1.5">
         {filteredSelected.map((item) => (
           <SelectedRow
-            key={`${item.projectId}:${item.versionId}`}
+            key={`${item.projectId}:${item.versionId || item.version}`}
             item={item}
             allowOptionalToggle={allowOptionalToggle}
             selected={selected}
@@ -398,6 +476,9 @@ export function ModrinthCatalogPicker({
             onView={() =>
               openPreview({ id: item.projectId, slug: item.slug })
             }
+            loader={loader}
+            gameVersion={gameVersion}
+            projectType={projectType}
           />
         ))}
       </ul>
@@ -513,7 +594,7 @@ export function ModrinthCatalogPicker({
           <ul className="flex flex-col gap-1.5">
             {selected.map((item) => (
               <SelectedRow
-                key={`${item.projectId}:${item.versionId}`}
+                key={`${item.projectId}:${item.versionId || item.version}`}
                 item={item}
                 allowOptionalToggle={allowOptionalToggle}
                 selected={selected}
@@ -521,6 +602,9 @@ export function ModrinthCatalogPicker({
                 onView={() =>
                   openPreview({ id: item.projectId, slug: item.slug })
                 }
+                loader={loader}
+                gameVersion={gameVersion}
+                projectType={projectType}
               />
             ))}
           </ul>

@@ -165,7 +165,8 @@ export type ManageSectionId =
   | "forms"
   | "hotfixes"
   | "discord"
-  | "roster";
+  | "roster"
+  | "roles";
 
 type GuildStore = {
   activeGuildId: string;

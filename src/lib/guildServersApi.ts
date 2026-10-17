@@ -256,6 +256,13 @@ export function serverFromApiRecord(raw: unknown): GuildServer | null {
         ? obj.tunnelUpdatedAt
         : null;
 
+  const preferredAgentNodeId = String(
+    obj.preferred_agent_node_id ??
+      obj.preferredAgentNodeId ??
+      obj.primary_agent_node_id ??
+      "",
+  ).trim();
+
   return {
     id: obj.id,
     guildId,
@@ -283,6 +290,7 @@ export function serverFromApiRecord(raw: unknown): GuildServer | null {
     status: catalogStatus,
     requiredBuildId: String(obj.build_id ?? ""),
     requiredBuildVersion: String(obj.required_build ?? ""),
+    preferredAgentNodeId: preferredAgentNodeId || null,
   };
 }
 

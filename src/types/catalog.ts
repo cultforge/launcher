@@ -45,6 +45,13 @@ export interface UserBuildRecord {
   updatedAt?: string;
 }
 
+export type PersonalServerVisibility = "private" | "unlisted" | "public";
+export type PersonalServerJoinPolicy =
+  | "open"
+  | "allowlist"
+  | "guild_members"
+  | "friends";
+
 export interface UserPersonalServerRecord {
   id: string;
   ownerId: string;
@@ -59,6 +66,12 @@ export interface UserPersonalServerRecord {
   buildId?: string;
   themeColor: string;
   isActive: boolean;
+  visibility: PersonalServerVisibility;
+  joinPolicy: PersonalServerJoinPolicy;
+  allowlistUserIds: string[];
+  allowlistUsernames: string[];
+  denylistUserIds: string[];
+  preferredAgentNodeId?: string | null;
 }
 
 export interface CultAgentServerBindingRecord {

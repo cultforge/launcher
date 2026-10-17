@@ -28,15 +28,15 @@ import {
   listCultAgentCommands,
   listCultAgentWorkloads,
   listGuildAgentEvents,
-  listGuildAgentPlayers,
   listGuildCultAgentNodes,
   listMyCultAgentNodes,
+  resolvePrimaryAgent,
+  setGuildServerPrimaryAgent,
   upsertCultAgentWorkload,
   type CultAgentBinding,
   type CultAgentCommand,
   type CultAgentGameEvent,
   type CultAgentNode,
-  type CultAgentPlayerPresence,
   type CultAgentWorkload,
 } from "../../lib/cultAgentApi";
 import {
@@ -67,6 +67,7 @@ import { EntityImage } from "../EntityImage";
 import { AgentNodePicker } from "./agent/AgentNodePicker";
 import { ServerControlPanel } from "./agent/ServerControlPanel";
 import { TelemetryCharts } from "./agent/TelemetryCharts";
+import { LiveSharePanel } from "./LiveSharePanel";
 import { ActivityFeedPanel } from "../guilds/ActivityFeedPanel";
 import { toast } from "sonner";
 import {
@@ -107,7 +108,7 @@ const NAV_SECTIONS: NavSection[] = [
     advanced: true,
     items: [
       { id: "console", label: "Console", icon: Terminal },
-      { id: "players", label: "Players", icon: Users },
+      { id: "players", label: "Live share", icon: Users },
       { id: "files", label: "Files", icon: FileCode2 },
       { id: "backups", label: "Backups", icon: Archive },
       { id: "plugins", label: "Mods", icon: Puzzle },
@@ -191,8 +192,13 @@ function useLiveMping(address: string) {
   return status;
 }
 
-function useAgentFleet(guildId: string) {
+function useAgentFleet(
+  guildId: string,
+  server: GuildServer | null,
+  opts: { scopeAll?: boolean; userId?: string } = {},
+) {
   const [nodes, setNodes] = useState<CultAgentNode[]>([]);
+  const [bindings, setBindings] = useState<CultAgentBinding[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [telemetry, setTelemetry] = useState<Record<string, unknown> | null>(
     null,
@@ -202,11 +208,45 @@ function useAgentFleet(guildId: string) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const primary =
-    nodes.find((n) => n.id === selectedId) ??
-    nodes.find((n) => n.guildId === guildId) ??
-    nodes[0] ??
-    null;
+  const primary = useMemo(() => {
+    if (selectedId) {
+      const picked = nodes.find((n) => n.id === selectedId);
+      if (picked) return picked;
+    }
+    return resolvePrimaryAgent({
+      preferredNodeId: server?.preferredAgentNodeId,
+      bindings,
+      nodes,
+      serverId: server?.id,
+    });
+  }, [selectedId, nodes, bindings, server?.preferredAgentNodeId, server?.id]);
+
+  const primaryBinding = useMemo(() => {
+    if (!primary || !server) return null;
+    return (
+      bindings.find(
+        (b) =>
+          !b.revokedAt &&
+          b.nodeId === primary.id &&
+          (b.guildServerId === server.id ||
+            b.localServerId === server.id),
+      ) ?? null
+    );
+  }, [bindings, primary, server]);
+
+  const isStandby =
+    Boolean(primary) &&
+    Boolean(server) &&
+    Boolean(primaryBinding) &&
+    !primaryBinding!.isPrimary &&
+    Boolean(
+      bindings.some(
+        (b) =>
+          !b.revokedAt &&
+          b.isPrimary &&
+          (b.guildServerId === server?.id || b.localServerId === server?.id),
+      ),
+    );
 
   const refresh = async () => {
     setLoading(true);
@@ -214,16 +254,27 @@ function useAgentFleet(guildId: string) {
     try {
       let list: CultAgentNode[] = [];
       try {
-        list = await listGuildCultAgentNodes(guildId);
+        list = await listGuildCultAgentNodes(guildId, 50, {
+          scope: opts.scopeAll ? "all" : "mine",
+        });
       } catch {
         list = await listMyCultAgentNodes();
       }
       setNodes(list);
+      const bindingLists = await Promise.all(
+        list.map((n) => listAgentBindings(n.id).catch(() => [] as CultAgentBinding[])),
+      );
+      const flat = bindingLists.flat().filter((b) => !b.revokedAt);
+      setBindings(flat);
+
+      const resolved = resolvePrimaryAgent({
+        preferredNodeId: server?.preferredAgentNodeId,
+        bindings: flat,
+        nodes: list,
+        serverId: server?.id,
+      });
       const focus =
-        list.find((n) => n.id === selectedId) ??
-        list.find((n) => n.guildId === guildId) ??
-        list[0] ??
-        null;
+        (selectedId && list.find((n) => n.id === selectedId)) || resolved;
       if (focus && focus.id !== selectedId) setSelectedId(focus.id);
       if (!focus) {
         setTelemetry(null);
@@ -250,11 +301,15 @@ function useAgentFleet(guildId: string) {
     void refresh();
     const id = window.setInterval(() => void refresh(), 15_000);
     return () => window.clearInterval(id);
-  }, [guildId, selectedId]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [guildId, server?.id, server?.preferredAgentNodeId, opts.scopeAll, selectedId]);
 
   return {
     nodes,
+    bindings,
     primary,
+    primaryBinding,
+    isStandby,
     selectedId,
     setSelectedId,
     telemetry,
@@ -263,6 +318,7 @@ function useAgentFleet(guildId: string) {
     loading,
     error,
     refresh,
+    userId: opts.userId ?? "",
   };
 }
 
@@ -674,9 +730,11 @@ function SettingsPanel({ server }: { server: GuildServer }) {
 function NetworkPanel({
   server,
   mping,
+  isStandby,
 }: {
   server: GuildServer;
   mping: MpingStatus | null;
+  isStandby?: boolean;
 }) {
   const live = applyMpingToServerStats(mping);
   const joinAddr = guildServerJoinAddress(server);
@@ -691,6 +749,12 @@ function NetworkPanel({
           Players join this address. If CultAgent has a tunnel up, that address
           is used instead of the catalog default.
         </p>
+        {isStandby ? (
+          <p className="mt-2 rounded-lg border border-state-warning/25 bg-state-warning/8 px-3 py-2 text-[11px] text-state-warning">
+            Standby agent selected — tunnel controls are primary-only. Make this
+            agent primary to manage the tunnel.
+          </p>
+        ) : null}
         <dl className="mt-4">
           {[
             ["Join address", joinAddr || "—"],
@@ -753,72 +817,14 @@ function HostOnPcPanel({
   );
 }
 
-function PlayersPanel({ guildId }: { guildId: string }) {
-  const [players, setPlayers] = useState<CultAgentPlayerPresence[]>([]);
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    let cancelled = false;
-    const load = async () => {
-      try {
-        const rows = await listGuildAgentPlayers(guildId);
-        if (!cancelled) setPlayers(rows);
-      } catch {
-        if (!cancelled) setPlayers([]);
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
-    };
-    void load();
-    const id = window.setInterval(() => void load(), 15_000);
-    return () => {
-      cancelled = true;
-      window.clearInterval(id);
-    };
-  }, [guildId]);
-
-  if (loading && players.length === 0) {
-    return (
-      <EmptyState title="Players" body="Checking who is on this world…" />
-    );
-  }
-  if (players.length === 0) {
-    return (
-      <EmptyState
-        title="Nobody online"
-        body="Names appear here when someone is in the world."
-      />
-    );
-  }
-
-  return (
-    <div className="cf-panel rounded-xl border border-white/8 bg-black/25 p-4 max-w-3xl">
-      <h3 className="font-sora text-[15px] font-bold text-text-primary mb-3">
-        Online · {players.length}
-      </h3>
-      <ul className="flex flex-col">
-        {players.map((p) => (
-          <li
-            key={p.uuid || p.name}
-            className="flex items-center justify-between gap-3 border-b border-white/6 py-2.5 last:border-0"
-          >
-            <span className="text-[13px] font-medium text-text-primary truncate">
-              {p.name}
-            </span>
-            <span className="text-[11px] text-text-muted shrink-0">
-              {[
-                p.gamemode,
-                p.dimension,
-                p.ping != null ? `${Math.round(p.ping)} ms` : null,
-              ]
-                .filter(Boolean)
-                .join(" · ")}
-            </span>
-          </li>
-        ))}
-      </ul>
-    </div>
-  );
+function PlayersPanel({
+  guildId,
+  serverId,
+}: {
+  guildId: string;
+  serverId: string;
+}) {
+  return <LiveSharePanel kind="guild" guildId={guildId} serverId={serverId} />;
 }
 
 function EventsPanel({ guildId }: { guildId: string }) {
@@ -910,7 +916,7 @@ function HostToolsPanel({
     );
   }
   if (kind === "players") {
-    return <PlayersPanel guildId={guildId} />;
+    return <PlayersPanel guildId={guildId} serverId={server.id} />;
   }
   if (kind === "schedules") {
     return <EventsPanel guildId={guildId} />;
@@ -1040,6 +1046,12 @@ function OverviewPanel({
         </dl>
       </div>
 
+      <LiveSharePanel
+        kind="guild"
+        guildId={server.guildId}
+        serverId={server.id}
+      />
+
       <div>
         <h4 className="text-[10px] font-semibold uppercase tracking-[0.16em] text-text-muted mb-2 px-0.5">
           Agent buzz
@@ -1092,7 +1104,10 @@ export function ServerAdminPanel() {
   const mping = useLiveMping(
     server ? guildServerJoinAddress(server) : "",
   );
-  const fleet = useAgentFleet(guildId);
+  const fleet = useAgentFleet(guildId, server, {
+    scopeAll: canManage,
+    userId,
+  });
   const live = applyMpingToServerStats(mping);
   const online = liveOnlineFromMping(mping);
 
@@ -1355,12 +1370,51 @@ export function ServerAdminPanel() {
           section !== "agent" &&
           section !== "overview" &&
           section !== "console" ? (
-            <AgentNodePicker
-              nodes={fleet.nodes}
-              selectedId={fleet.selectedId}
-              onSelect={fleet.setSelectedId}
-              loading={fleet.loading}
-            />
+            <div className="flex flex-col gap-2">
+              <AgentNodePicker
+                nodes={fleet.nodes}
+                selectedId={fleet.selectedId ?? fleet.primary?.id ?? null}
+                onSelect={fleet.setSelectedId}
+                loading={fleet.loading}
+                currentUserId={userId}
+                bindings={fleet.bindings}
+                serverId={server.id}
+              />
+              {fleet.primary &&
+              fleet.primaryBinding &&
+              !fleet.primaryBinding.isPrimary ? (
+                <button
+                  type="button"
+                  className="self-start rounded-lg border border-primary-base/30 px-3 py-1.5 text-[11px] font-semibold text-primary-base cursor-pointer hover:bg-primary-base/10"
+                  onClick={() => {
+                    void setGuildServerPrimaryAgent(
+                      guildId,
+                      server.id,
+                      fleet.primary!.id,
+                    )
+                      .then(() => {
+                        toast.success("Primary agent updated");
+                        return fleet.refresh();
+                      })
+                      .catch((err) =>
+                        toast.error(
+                          err instanceof Error
+                            ? err.message
+                            : "Could not set primary",
+                        ),
+                      );
+                  }}
+                >
+                  Make primary
+                </button>
+              ) : null}
+              {fleet.isStandby ? (
+                <p className="text-[10px] text-state-warning">
+                  Standby — tunnel and exclusive host controls stay on the
+                  primary agent.
+                </p>
+              ) : null}
+            </div>
           ) : null}
 
           {section === "overview" ? (
@@ -1385,7 +1439,11 @@ export function ServerAdminPanel() {
           ) : null}
           {section === "settings" ? <SettingsPanel server={server} /> : null}
           {section === "network" ? (
-            <NetworkPanel server={server} mping={mping} />
+            <NetworkPanel
+              server={server}
+              mping={mping}
+              isStandby={fleet.isStandby}
+            />
           ) : null}
           {section === "schedules" ? (
             <ActivityFeedPanel guildId={guildId} max={40} />

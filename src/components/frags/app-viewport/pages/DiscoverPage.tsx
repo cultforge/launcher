@@ -13,6 +13,13 @@ import { handleContentHref } from "../../../../lib/deepLinks";
 import { GuildIcon } from "../../../GuildIcon";
 import type { DiscoverGuildCard } from "../../../../lib/cultApi";
 import { toast } from "sonner";
+import {
+  canJoinPersonalServer,
+  discoverPublicPersonalServers,
+  personalServerJoinAddress,
+} from "../../../../lib/personalServersApi";
+import type { UserPersonalServerRecord } from "../../../../types/catalog";
+import { useAppStore } from "../../../../userstore";
 
 function StoryCover({
   story,
@@ -238,6 +245,77 @@ function GuildStrip({ guilds }: { guilds: DiscoverGuildCard[] }) {
   );
 }
 
+function PublicServersStrip() {
+  const me = useAppStore((s) => s.currentUser);
+  const [rows, setRows] = useState<UserPersonalServerRecord[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+    void discoverPublicPersonalServers(24)
+      .then((list) => {
+        if (!cancelled) setRows(list);
+      })
+      .catch(() => {
+        if (!cancelled) setRows([]);
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  if (loading || rows.length === 0) return null;
+
+  return (
+    <section className="flex flex-col gap-2">
+      <h3 className="text-[11px] font-semibold uppercase tracking-wider text-text-disabled">
+        Public personal servers
+      </h3>
+      <div className="flex gap-2 overflow-x-auto scroll-hidden pb-1">
+        {rows.map((s) => {
+          const join = personalServerJoinAddress(s);
+          const gate = canJoinPersonalServer(s, {
+            userId: me?.id,
+            username: me?.name,
+          });
+          return (
+            <button
+              key={s.id}
+              type="button"
+              title={gate.ok ? undefined : gate.reason}
+              onClick={() => {
+                if (!gate.ok) {
+                  toast.error(gate.reason || "Join policy blocks this server");
+                  return;
+                }
+                void navigator.clipboard
+                  .writeText(`${join.address}:${join.port}`)
+                  .then(() => toast.success("Join address copied"))
+                  .catch(() => toast.error("Could not copy"));
+              }}
+              className="cf-panel shrink-0 w-48 rounded-xl p-3 flex flex-col gap-1.5 text-left cursor-pointer hover:bg-bg-elevated transition-colors"
+            >
+              <div className="text-[12px] font-semibold text-text-primary truncate">
+                {s.name}
+              </div>
+              <div className="text-[10px] text-text-muted truncate font-mono">
+                {join.address}:{join.port}
+              </div>
+              <div className="text-[9px] text-text-disabled">
+                {s.joinPolicy}
+                {!gate.ok ? " · gated" : ""}
+              </div>
+            </button>
+          );
+        })}
+      </div>
+    </section>
+  );
+}
+
 function DiscoverPage() {
   const category = useDiscoverStore((s) => s.category);
   const setCategory = useDiscoverStore((s) => s.setCategory);
@@ -311,6 +389,7 @@ function DiscoverPage() {
       ) : null}
 
       {category !== "Saved" ? <GuildStrip guilds={guilds} /> : null}
+      {category !== "Saved" ? <PublicServersStrip /> : null}
 
       {hero ? (
         <div className="relative shrink-0 overflow-x-clip overflow-y-visible">

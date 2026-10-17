@@ -2,6 +2,7 @@ import { create } from "zustand";
 import {
   applyThemeTokens,
   BUILTIN_THEMES,
+  BUILTIN_THEMES_ALL,
   cloneTheme,
   DEFAULT_THEME_ID,
   isThemeTokens,
@@ -19,7 +20,7 @@ import {
 import { getPreference, setPreference } from "../lib/persistentStore";
 
 type PersistedThemeState = {
-  version: 1 | 2;
+  version: 1 | 2 | 3;
   activeThemeId: string;
   customThemes: LauncherTheme[];
   editingId: string | null;
@@ -27,6 +28,11 @@ type PersistedThemeState = {
   logoAssignments?: Record<string, LogoVariant>;
   headerVariant?: ShellVariant;
   sideNavVariant?: ShellVariant;
+  /** @deprecated pruned Gen2 edition — ignored on hydrate */
+  uiEdition?: string;
+  cultforgeThemeId?: string | null;
+  gen2ThemeId?: string | null;
+  gen2ShellTouched?: boolean;
 };
 
 type ThemeStore = {
@@ -66,7 +72,7 @@ const persistenceKey = "themes";
 let persistenceQueue: Promise<void> = Promise.resolve();
 
 function allThemes(customThemes: LauncherTheme[]) {
-  return [...BUILTIN_THEMES, ...customThemes];
+  return [...BUILTIN_THEMES_ALL, ...customThemes];
 }
 
 function validCustomThemes(value: unknown): LauncherTheme[] {
@@ -88,7 +94,7 @@ function validCustomThemes(value: unknown): LauncherTheme[] {
 function persist(get: () => ThemeStore) {
   const state = get();
   const value: PersistedThemeState = {
-    version: 2,
+    version: 3,
     activeThemeId: state.activeThemeId,
     customThemes: state.customThemes,
     editingId: state.editingId,
@@ -134,6 +140,10 @@ function validAssignments(value: unknown): Record<string, LogoVariant> {
   );
 }
 
+function clearUiEditionDataset() {
+  delete document.documentElement.dataset.uiEdition;
+}
+
 export const useThemeStore = create<ThemeStore>((set, get) => ({
   hydrated: false,
   activeThemeId: DEFAULT_THEME_ID,
@@ -150,9 +160,12 @@ export const useThemeStore = create<ThemeStore>((set, get) => ({
     const saved = await getPreference<PersistedThemeState>(persistenceKey);
     const customThemes = validCustomThemes(saved?.customThemes);
     const available = allThemes(customThemes);
-    const activeThemeId = available.some((theme) => theme.id === saved?.activeThemeId)
-      ? saved!.activeThemeId
-      : DEFAULT_THEME_ID;
+    // Drop pruned Gen2 builtin ids if they were last selected.
+    const savedId = saved?.activeThemeId;
+    const activeThemeId =
+      savedId && available.some((theme) => theme.id === savedId)
+        ? savedId
+        : DEFAULT_THEME_ID;
     const editingId = customThemes.some((theme) => theme.id === saved?.editingId)
       ? saved!.editingId
       : null;
@@ -161,6 +174,15 @@ export const useThemeStore = create<ThemeStore>((set, get) => ({
     if (!logoAssignments[activeThemeId]) {
       logoAssignments[activeThemeId] = randomLogoVariant();
     }
+    // If Gen2 auto-forced side nav v3 and user never customized shell, reset.
+    let sideNavVariant = validShellVariant(saved?.sideNavVariant);
+    if (
+      saved?.uiEdition === "gen2" &&
+      !saved?.gen2ShellTouched &&
+      sideNavVariant === "v3"
+    ) {
+      sideNavVariant = "current";
+    }
     set({
       customThemes,
       activeThemeId,
@@ -168,11 +190,12 @@ export const useThemeStore = create<ThemeStore>((set, get) => ({
       logoMode,
       logoAssignments,
       headerVariant: validShellVariant(saved?.headerVariant),
-      sideNavVariant: validShellVariant(saved?.sideNavVariant),
+      sideNavVariant,
       headerPreview: null,
       sideNavPreview: null,
       hydrated: true,
     });
+    clearUiEditionDataset();
     applyThemeTokens(
       available.find((theme) => theme.id === activeThemeId)!.tokens,
     );

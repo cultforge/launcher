@@ -44,6 +44,12 @@ import {
 } from "../../../lib/agentControl";
 import { startingPhaseLabel } from "../../../lib/agentResultHumanize";
 import { cn } from "../../../lib/cn";
+import {
+  canServerControlAction,
+  membershipForUser,
+} from "../../../lib/guildPermissions";
+import { useGuildStore } from "../../../stores/guilds";
+import { useAppStore } from "../../../userstore";
 import { eventText } from "../../guilds/ActivityFeedPanel";
 
 const DIFFICULTIES = ["peaceful", "easy", "normal", "hard"] as const;
@@ -175,6 +181,20 @@ export function ServerControlPanel({
   connectionMode = "unknown",
 }: Props) {
   const online = isAgentNodeOnline(node);
+  const viewerPermissions = useGuildStore((s) =>
+    guildId ? s.viewerPermissionsByGuild[guildId] : undefined,
+  );
+  const members = useGuildStore((s) => s.members);
+  const userId = useAppStore((s) => s.currentUser?.id ?? "");
+  const memberRole = guildId
+    ? membershipForUser(members, guildId, userId)?.role
+    : null;
+  const canAction = (action: string) =>
+    canServerControlAction(action, {
+      guildScoped: Boolean(guildId),
+      permissions: viewerPermissions,
+      role: memberRole,
+    });
   const [runState, setRunState] = useState(initialState ?? "stopped");
   const [players, setPlayers] = useState<number | null>(null);
   const [maxPlayers, setMaxPlayers] = useState<number | null>(null);
@@ -708,22 +728,38 @@ export function ServerControlPanel({
 
   const onStart = () => {
     if (inFlightRef.current) return;
+    if (!canAction("server.start")) {
+      toast.error("Missing permission: server.start");
+      return;
+    }
     setPhase(startingPhaseLabel(linkMode));
     applyRunState("starting", 60_000);
     void run("server.start", { accept_eula: true });
   };
 
   const onStop = () => {
+    if (!canAction("server.stop")) {
+      toast.error("Missing permission: server.stop");
+      return;
+    }
     if (!window.confirm("Stop the server?")) return;
     void run("server.stop");
   };
 
   const onRestart = () => {
+    if (!canAction("server.restart")) {
+      toast.error("Missing permission: server.restart");
+      return;
+    }
     if (!window.confirm("Restart the server?")) return;
     void run("server.restart");
   };
 
   const onInstall = () => {
+    if (!canAction("builds.provision")) {
+      toast.error("Missing permission: builds.provision");
+      return;
+    }
     if (!buildId) {
       toast.error("This listing has no build to install.");
       return;
@@ -732,6 +768,10 @@ export function ServerControlPanel({
   };
 
   const onSaveSettings = () => {
+    if (!canAction("server.config.update")) {
+      toast.error("Missing permission: server.config.update");
+      return;
+    }
     if (!window.confirm("Save these server.properties on the PC?")) return;
     const values: Record<string, string> = {
       ...allProps,
@@ -821,6 +861,10 @@ export function ServerControlPanel({
   }, [configLoaded, loadServerProperties, online, view]);
 
   const onSend = async () => {
+    if (!canAction("server.console.execute")) {
+      toast.error("Missing permission: server.console.execute");
+      return;
+    }
     const command = draft.trim().replace(/^\//, "");
     if (!command) return;
     setDraft("");
@@ -886,7 +930,12 @@ export function ServerControlPanel({
             {!live ? (
               <button
                 type="button"
-                disabled={locked}
+                disabled={locked || !canAction("server.start")}
+                title={
+                  canAction("server.start")
+                    ? undefined
+                    : "Requires server.start permission"
+                }
                 onClick={onStart}
                 className="cf-btn-primary w-full inline-flex items-center justify-center gap-2 rounded-2xl px-8 py-4 text-[18px] font-bold cursor-pointer disabled:opacity-40 shadow-lg shadow-primary-base/20"
               >
@@ -897,7 +946,14 @@ export function ServerControlPanel({
               <div className="flex w-full gap-2">
                 <button
                   type="button"
-                  disabled={busy !== null || !online}
+                  disabled={
+                    busy !== null || !online || !canAction("server.stop")
+                  }
+                  title={
+                    canAction("server.stop")
+                      ? undefined
+                      : "Requires server.stop permission"
+                  }
                   onClick={onStop}
                   className="flex-1 inline-flex items-center justify-center gap-2 rounded-2xl border border-state-error/40 px-6 py-4 text-[16px] font-bold text-state-error cursor-pointer hover:bg-state-error/10 disabled:opacity-40"
                 >
@@ -906,7 +962,14 @@ export function ServerControlPanel({
                 </button>
                 <button
                   type="button"
-                  disabled={busy !== null || !online}
+                  disabled={
+                    busy !== null || !online || !canAction("server.restart")
+                  }
+                  title={
+                    canAction("server.restart")
+                      ? undefined
+                      : "Requires server.restart permission"
+                  }
                   onClick={onRestart}
                   className="inline-flex items-center justify-center gap-2 rounded-2xl border border-white/12 px-5 py-4 text-[13px] font-semibold cursor-pointer disabled:opacity-40"
                 >
@@ -1004,7 +1067,12 @@ export function ServerControlPanel({
           {!live ? (
             <button
               type="button"
-              disabled={locked}
+              disabled={locked || !canAction("server.start")}
+              title={
+                canAction("server.start")
+                  ? undefined
+                  : "Requires server.start permission"
+              }
               onClick={onStart}
               className="cf-btn-primary inline-flex items-center gap-2 rounded-xl px-8 py-3.5 text-[16px] font-bold cursor-pointer disabled:opacity-40"
             >
@@ -1015,7 +1083,14 @@ export function ServerControlPanel({
             <>
               <button
                 type="button"
-                disabled={busy !== null || !online}
+                disabled={
+                  busy !== null || !online || !canAction("server.stop")
+                }
+                title={
+                  canAction("server.stop")
+                    ? undefined
+                    : "Requires server.stop permission"
+                }
                 onClick={onStop}
                 className="inline-flex items-center gap-2 rounded-xl border border-state-error/40 px-8 py-3.5 text-[16px] font-bold text-state-error cursor-pointer hover:bg-state-error/10 disabled:opacity-40"
               >
@@ -1024,7 +1099,14 @@ export function ServerControlPanel({
               </button>
               <button
                 type="button"
-                disabled={busy !== null || !online}
+                disabled={
+                  busy !== null || !online || !canAction("server.restart")
+                }
+                title={
+                  canAction("server.restart")
+                    ? undefined
+                    : "Requires server.restart permission"
+                }
                 onClick={onRestart}
                 className="inline-flex items-center gap-1.5 rounded-xl border border-white/12 px-5 py-3.5 text-[13px] font-semibold cursor-pointer disabled:opacity-40"
               >

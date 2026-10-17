@@ -5,6 +5,7 @@ import { useAppStore } from "../../../../userstore";
 import { useProfileRouteStore } from "../../../../stores/profileRoute";
 import { UserAvatar } from "../../../UserAvatar";
 import { ShareDeepLinkButton } from "../../../CopyButton";
+import { PartyLobbyPanel } from "../../../social/PartyLobbyPanel";
 import { cn } from "../../../../lib/cn";
 import { toast } from "sonner";
 import { discoverFriends } from "../../../../lib/friendsApi";
@@ -134,6 +135,8 @@ export default function FriendsPage() {
           </button>
         </div>
       </header>
+
+      <PartyLobbyPanel />
 
       <div className="flex gap-1 rounded-xl border border-white/8 bg-black/20 p-1 w-fit">
         {(

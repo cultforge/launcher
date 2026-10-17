@@ -2,6 +2,14 @@
 
 Remote API catalog: [https://api.cultforge.com/manifest.json](https://api.cultforge.com/manifest.json) (`&.build_id`: `v2026.08.13-win`).
 
+## Release: 2.4.4
+
+Target ship semver: **2.4.4**. Stamps: **`2.4.4`** (production).
+
+- [x] Product work for 2.4.4 (roles/server perms, live share, lobby, Gen2 prune, UI polish)
+- [ ] Admin / installed-app smoke signed off
+- [ ] Publish `v2.4.4` (GitHub Actions: Windows + macOS + Linux) + `latest.json`
+
 ## Release: 2.4.3
 
 Target ship semver: **2.4.3**. Stamps: **`2.4.3`** (production).
@@ -9,7 +17,7 @@ Target ship semver: **2.4.3**. Stamps: **`2.4.3`** (production).
 - [x] Product work for 2.4.3 complete (PATCH-1 + PATCH-2)
 - [x] Drop `-dev` → unify stamps to `2.4.3`
 - [ ] Admin / installed-app smoke signed off
-- [ ] Publish `v2.4.3` (GitHub Actions: Windows + macOS + Linux) + `latest.json`
+- [x] Publish `v2.4.3` (GitHub Actions: Windows + macOS + Linux) + `latest.json`
 
 ## PATCH - 1 of 2.4.3
 

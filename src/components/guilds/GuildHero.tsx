@@ -206,6 +206,12 @@ export function GuildHero({ guild }: { guild: Guild }) {
             label="Share"
             className="border-white/14 bg-black/25 px-3 py-1.5 text-[12px] font-semibold text-white/85 hover:border-white/22 hover:bg-black/40 hover:text-white"
           />
+          <ShareDeepLinkButton
+            link={{ kind: "guild-rankings", guildId: guild.id }}
+            label="Share board"
+            title="Share guild rankings board"
+            className="border-white/14 bg-black/25 px-3 py-1.5 text-[12px] font-semibold text-white/85 hover:border-white/22 hover:bg-black/40 hover:text-white"
+          />
         </div>
       </div>
     </section>

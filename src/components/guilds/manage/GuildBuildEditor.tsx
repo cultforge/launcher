@@ -70,6 +70,7 @@ function picksFromRefs(
         name: string;
         slug?: string;
         version?: string;
+        versionId?: string;
         sourceUrl?: string;
       }[]
     | undefined,
@@ -87,7 +88,7 @@ function picksFromRefs(
       version: r.version ?? "",
       sourceUrl: r.sourceUrl ?? "",
       projectId: slug || `local-${i}`,
-      versionId: r.version ?? `v-${i}`,
+      versionId: r.versionId ?? "",
       projectType,
       optional,
     };
@@ -98,7 +99,8 @@ function picksToRefs(picks: ModrinthPickResult[]) {
   return picks.map((p) => ({
     name: p.name,
     slug: p.slug,
-    version: p.version,
+    version: p.version || "latest",
+    versionId: p.versionId || undefined,
     sourceUrl: p.sourceUrl,
   }));
 }
@@ -107,7 +109,8 @@ function datapacksToRefs(picks: ModrinthPickResult[]) {
   return picks.map((p) => ({
     name: p.name,
     slug: withDatapackSlug(p.slug),
-    version: p.version,
+    version: p.version || "latest",
+    versionId: p.versionId || undefined,
     sourceUrl: p.sourceUrl,
   }));
 }

@@ -21,6 +21,7 @@ import { ManageOverview } from "../manage/ManageOverview";
 import { ManagePlaceHeader } from "../manage/ManagePlaceHeader";
 import { ManageRankings } from "../manage/ManageRankings";
 import { ManageRoster } from "../manage/ManageRoster";
+import { ManageRoles } from "../manage/ManageRoles";
 import { ManageServers } from "../manage/ManageServers";
 import { ManageForms } from "../manage/ManageForms";
 import { ManageHotfixes } from "../manage/ManageHotfixes";
@@ -36,6 +37,7 @@ function ManageSectionBody({ section }: { section: ManageSectionId }) {
   if (section === "hotfixes") return <ManageHotfixes />;
   if (section === "discord") return <ManageDiscord />;
   if (section === "roster") return <ManageRoster />;
+  if (section === "roles") return <ManageRoles />;
   return null;
 }
 

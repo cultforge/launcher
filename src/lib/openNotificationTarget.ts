@@ -51,6 +51,16 @@ export async function openNotificationTarget(
     return true;
   }
 
+  if (kind.includes("lobby")) {
+    const lobbyId =
+      payloadString(payload, "lobby_id", "lobbyId", "id") ||
+      payloadString(payload, "invite_code", "inviteCode");
+    if (lobbyId) {
+      navigateCultforgeDeepLink(`cultforge://nav/lobby/${lobbyId}`);
+      return true;
+    }
+  }
+
   if (guildId && channelId) {
     navigateCultforgeDeepLink(`cultforge://guild/${guildId}/channel/${channelId}`);
     return true;

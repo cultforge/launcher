@@ -1,4 +1,5 @@
 import { handleAgentCommandWsMessage } from "./agentCommandEvents";
+import { handleLiveShareWsMessage } from "./liveShareEvents";
 import { chatMessageFromApiRecord } from "./guildChat";
 import { getGuild } from "../data/guilds";
 import { resolveGuildChatRole } from "./guildPermissions";
@@ -109,6 +110,10 @@ export function handleRealtimeWsMessage(payload: unknown): boolean {
     void import("../stores/chloe").then(({ useChloeStore }) => {
       void useChloeStore.getState().handleRealtimeAction(payload);
     });
+    return true;
+  }
+
+  if (handleLiveShareWsMessage(payload)) {
     return true;
   }
 

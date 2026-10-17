@@ -160,7 +160,9 @@ export function ShareDeepLinkButton({
               <span className="block text-[9px] text-text-muted mt-0.5">
                 {webFromInvite
                   ? "invite.cultforge.com"
-                  : "guilds.cultforge.com"}
+                  : webHref?.includes("api.cultforge.com")
+                    ? "api.cultforge.com"
+                    : "guilds.cultforge.com"}
               </span>
             </span>
           </button>

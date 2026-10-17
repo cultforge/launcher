@@ -28,7 +28,8 @@ export function ManageRankings() {
             Rankings
           </h3>
           <p className="text-[10px] text-text-muted">
-            Edit leaderboard rows per metric.
+            Legacy display rows only. Competitive score boards are API-owned
+            (agent ingest) — the hub Rankings tab shows board=score.
           </p>
         </div>
         <div className="flex items-center gap-2">

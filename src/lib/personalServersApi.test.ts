@@ -18,6 +18,11 @@ function makeServer(
     addressSource: "configured",
     themeColor: "#7A2CFF",
     isActive: true,
+    visibility: "private",
+    joinPolicy: "allowlist",
+    allowlistUserIds: [],
+    allowlistUsernames: [],
+    denylistUserIds: [],
     ...overrides,
   };
 }

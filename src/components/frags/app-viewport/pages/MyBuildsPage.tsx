@@ -27,7 +27,7 @@ function picksFromRefs(
       version: r.version ?? "",
       sourceUrl: r.sourceUrl ?? "",
       projectId: slug || `local-${i}`,
-      versionId: r.version ?? `v-${i}`,
+      versionId: r.versionId ?? "",
       projectType,
       optional,
     };
@@ -38,7 +38,8 @@ function picksToRefs(picks: ModrinthPickWithOptional[]): GuildBuildModRef[] {
   return picks.map((p) => ({
     name: p.name,
     slug: p.slug,
-    version: p.version,
+    version: p.version || "latest",
+    versionId: p.versionId || undefined,
     sourceUrl: p.sourceUrl,
   }));
 }

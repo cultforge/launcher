@@ -77,6 +77,7 @@ export async function fetchGuildRankings(
       fetcher: async () => {
         const raw = await send<unknown>("guilds", "guild_leaderboard_rankings", {
           guild_id: guildId,
+          board: "legacy",
           metric,
         });
         return unwrapList(raw, ["data", "rankings", "items"])

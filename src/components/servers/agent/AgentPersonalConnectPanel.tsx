@@ -3,9 +3,8 @@ import { toast } from "sonner";
 import { Copy } from "lucide-react";
 import {
   approveCultAgentDeviceLogin,
-  listAccessibleCultAgentNodes,
+  listMyCultAgentNodes,
 } from "../../../lib/cultAgentApi";
-import { joinedGuilds } from "../../../data/guilds";
 import { copyText } from "../../../lib/copyText";
 
 const LOGIN_CMD = "cf-agent login";
@@ -40,13 +39,8 @@ export function AgentPersonalConnectPanel({
     setWatching(false);
   };
 
-  const guildIds = () => joinedGuilds().map((g) => g.id);
-
   const loadNodes = async () => {
-    const nodes = await listAccessibleCultAgentNodes(guildIds(), {
-      dedupe: true,
-    });
-    return nodes.filter((n) => !n.guildId);
+    return listMyCultAgentNodes(50, { dedupe: true });
   };
 
   const startWatch = async () => {

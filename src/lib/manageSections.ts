@@ -67,6 +67,11 @@ const SECTION_META: Record<
     description: "Roster, roles, and invites",
     icon: "Users",
   },
+  roles: {
+    title: "Roles",
+    description: "Permission catalog and role editor",
+    icon: "Users",
+  },
 };
 
 const GROUPS: { title: string; ids: Exclude<ManageSectionId, "overview">[] }[] =
@@ -74,7 +79,7 @@ const GROUPS: { title: string; ids: Exclude<ManageSectionId, "overview">[] }[] =
     { title: "Look & feel", ids: ["branding", "discord"] },
     { title: "Community", ids: ["events", "news", "rankings"] },
     { title: "Play together", ids: ["servers", "builds", "hotfixes"] },
-    { title: "People", ids: ["roster", "forms"] },
+    { title: "People", ids: ["roster", "roles", "forms"] },
   ];
 
 export function manageSectionGroups(): ManageSectionGroup[] {

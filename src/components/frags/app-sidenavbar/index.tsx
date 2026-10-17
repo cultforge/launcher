@@ -27,8 +27,8 @@ function SideBadge({ badge }: { badge: string | number }) {
     <span
       className={
         isNew
-          ? "ml-auto text-[9px] font-bold tracking-wide px-1.5 py-0.5 rounded-sm bg-accent-delta/25 text-accent-delta border border-accent-delta/30"
-          : "ml-auto min-w-4 h-4 px-1 flex items-center justify-center text-[9px] font-bold rounded-full bg-primary-base text-bg-app shadow-[0_0_8px_var(--color-glow-secondary)]"
+          ? "ml-auto shrink-0 self-center text-[9px] font-bold leading-none tracking-wide px-1.5 py-0.5 rounded-sm bg-accent-delta/25 text-accent-delta border border-accent-delta/30"
+          : "ml-auto shrink-0 self-center min-w-4 h-4 px-1 flex items-center justify-center text-[9px] font-bold leading-none rounded-full bg-primary-base text-bg-app shadow-[0_0_8px_var(--color-glow-secondary)]"
       }
     >
       {badge}
@@ -60,13 +60,15 @@ function SideNavItem({
         data-active={isActive}
         aria-current={isActive ? "page" : undefined}
         title={label}
-        className={`cf-side-nav-item relative flex h-10 w-10 items-center justify-center rounded-lg cursor-pointer transition-all duration-200 active:scale-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-base/70 ${
+        className={`cf-side-nav-item relative flex h-10 w-10 items-center justify-center rounded-xl cursor-pointer transition-all duration-200 active:scale-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-base/70 ${
           isActive
             ? "text-primary-base bg-primary-base/12 border border-primary-base/45 shadow-[0_0_14px_var(--color-glow-secondary)]"
             : "text-text-muted hover:text-text-secondary hover:bg-bg-elevated/70 border border-transparent"
         }`}
       >
-        <Icon icon={icon} size={19} />
+        <span className="cf-side-nav-icon grid h-5 w-5 place-items-center" aria-hidden>
+          <Icon icon={icon} size={19} />
+        </span>
         {badge !== undefined && (
           <span className="absolute -top-0.5 -right-0.5 min-w-3.5 h-3.5 px-0.5 flex items-center justify-center text-[8px] font-bold rounded-full bg-primary-base text-bg-app">
             {typeof badge === "number" ? badge : "!"}
@@ -83,7 +85,7 @@ function SideNavItem({
       data-active={isActive}
       aria-current={isActive ? "page" : undefined}
       title={label}
-      className={`cf-side-nav-item relative group flex w-full items-center gap-3 px-3 py-1.75 rounded-lg cursor-pointer transition-all duration-200 active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-base/70 ${
+      className={`cf-side-nav-item relative group flex w-full h-9 items-center gap-2.5 px-2.5 rounded-lg cursor-pointer transition-all duration-200 active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-base/70 ${
         isActive
           ? "text-text-primary bg-primary-base/11 border border-primary-base/30"
           : "text-text-muted/85 border border-transparent hover:text-text-secondary hover:bg-white/3"
@@ -92,7 +94,7 @@ function SideNavItem({
       {isActive && (
         <motion.span
           layoutId="side-active-bar"
-          className="absolute left-0 top-1/2 -translate-y-1/2 w-0.75 h-4.5 rounded-r-full bg-primary-base shadow-[0_0_8px_var(--color-primary-base)]"
+          className="cf-side-nav-active-bar absolute left-0 top-1/2 -translate-y-1/2 w-[3px] h-[18px] rounded-r-full bg-primary-base shadow-[0_0_8px_var(--color-primary-base)]"
           transition={
             reduceMotion
               ? { duration: 0 }
@@ -100,17 +102,18 @@ function SideNavItem({
           }
         />
       )}
-      <Icon
-        icon={icon}
-        size={17}
-        className={`shrink-0 transition-colors ${
+      <span
+        className={`cf-side-nav-icon grid h-4 w-4 shrink-0 place-items-center transition-colors ${
           isActive
             ? "text-primary-base"
             : "text-text-muted group-hover:text-text-secondary"
         }`}
-      />
+        aria-hidden
+      >
+        <Icon icon={icon} size={16} />
+      </span>
       <span
-        className={`text-[12.5px] font-medium tracking-wide truncate ${
+        className={`min-w-0 flex-1 text-left text-[12.5px] font-medium leading-none tracking-wide truncate ${
           isActive ? "text-text-primary" : ""
         }`}
       >
@@ -187,7 +190,6 @@ function NavigationBar({ collapsed, onToggle }: Omit<NavigationBarProps, "smenu"
         collapsed ? "w-17" : "w-58"
       }`}
     >
-      {/* Always-visible collapse control */}
       <div
         className={`cf-side-nav-header shrink-0 flex items-center border-b border-border-subtle ${
           collapsed ? "justify-center px-2 py-3" : "justify-between px-3 py-2.5"
@@ -218,16 +220,16 @@ function NavigationBar({ collapsed, onToggle }: Omit<NavigationBarProps, "smenu"
         className={`cf-side-nav-scroll flex-1 min-h-0 overflow-y-auto scroll-hidden pb-24 ${
           collapsed
             ? "flex flex-col items-center gap-2 py-3 px-2"
-            : "flex flex-col gap-4 px-2.5 py-3"
+            : "flex flex-col gap-5 px-2 py-3"
         }`}
       >
         {smenu.map((section) => (
           <div
             key={section.section}
-            className={`cf-side-nav-section flex flex-col ${collapsed ? "items-center gap-1.5" : "gap-1"}`}
+            className={`cf-side-nav-section flex flex-col ${collapsed ? "items-center gap-1.5" : "gap-1.5"}`}
           >
             {!collapsed && (
-              <div className="cf-side-nav-section-label px-2.5 mb-0.5 text-[9px] font-semibold uppercase tracking-[0.2em] text-text-disabled/80">
+              <div className="cf-side-nav-section-label px-2.5 text-[9px] font-semibold uppercase tracking-[0.2em] text-text-disabled/80 leading-none">
                 {section.section}
               </div>
             )}

@@ -3,10 +3,10 @@ import { toast } from "sonner";
 import { Copy } from "lucide-react";
 import {
   createCultAgentPairingCode,
-  listAccessibleCultAgentNodes,
+  listGuildCultAgentNodes,
+  listMyCultAgentNodes,
   type CultAgentPairing,
 } from "../../../lib/cultAgentApi";
-import { joinedGuilds } from "../../../data/guilds";
 import { copyText } from "../../../lib/copyText";
 
 type Props = {
@@ -55,10 +55,13 @@ export function AgentConnectCodePanel({
   };
 
   const loadNodes = async () => {
-    const guildIds = guildId ? [guildId] : joinedGuilds().map((g) => g.id);
-    const all = await listAccessibleCultAgentNodes(guildIds, { dedupe: true });
-    if (guildId) return all.filter((n) => n.guildId === guildId);
-    return all.filter((n) => !n.guildId);
+    if (guildId) {
+      return listGuildCultAgentNodes(guildId, 50, {
+        dedupe: true,
+        scope: "mine",
+      });
+    }
+    return listMyCultAgentNodes(50, { dedupe: true });
   };
 
   const startWatch = async () => {

@@ -35,7 +35,7 @@ from ctfgsdk.schema import (
     UserHandleUpdateRequest,
 )
 
-APP_VERSION = "2.4.3"
+APP_VERSION = "2.4.4"
 ws_connections: set[WebSocket] = set()
 
 LOG_LEVELS = {"DEBUG", "INFO", "SUCCESS", "WARNING", "ERROR", "CRITICAL", "EXCEPTION"}
@@ -52,7 +52,7 @@ rKEY: str = ""
 _skey_user_agent: str | None = None
 _skey_platform: str | None = None
 
-# Platform admin capability JWT — memory only, never keyring.
+# Platform admin capability JWT â€” memory only, never keyring.
 _admin_capability: str = ""
 _admin_capability_expires_at: float = 0.0
 _admin_catalog_cache: list[dict[str, Any]] | None = None
@@ -76,7 +76,7 @@ ADMIN_CATALOG_TTL = 300.0
 #   {"type": "chloe.action.execute", "payload": {action_id, tool, args, summary, ...}}
 #   {"type": "agent.command.updated", "payload": {id, node_id, status, result, ...}}
 
-# Local guild media bytes (icon/banner/covers) — avoid re-hitting Cloudflare.
+# Local guild media bytes (icon/banner/covers) â€” avoid re-hitting Cloudflare.
 _guild_media_local_cache: dict[str, tuple[bytes, str]] = {}
 
 
@@ -293,16 +293,19 @@ _presence_task: asyncio.Task | None = None
 _presence_wake: asyncio.Event | None = None
 _guilds_ws_task: asyncio.Task | None = None
 _guilds_ws_wake: asyncio.Event | None = None
-# Active guilds remote socket for React → remote uplink (channel join/leave).
+# Active guilds remote socket for React â†’ remote uplink (channel join/leave).
 _guilds_remote_ws: Any | None = None
 _guilds_remote_lock = asyncio.Lock()
+# Active api /v1/ws for live_share room join/leave uplink.
+_presence_remote_ws: Any | None = None
+_presence_remote_lock = asyncio.Lock()
 
 # Warm CPU counter so the first non-blocking sample is meaningful.
 psutil.cpu_percent(interval=None)
 
 
 def _session_token_path() -> str:
-    """Legacy plaintext path — only used for one-time migration."""
+    """Legacy plaintext path â€” only used for one-time migration."""
     base = os.environ.get("APPDATA") or os.environ.get("LOCALAPPDATA") or os.getcwd()
     folder = os.path.join(base, "CultForge")
     os.makedirs(folder, exist_ok=True)
@@ -850,7 +853,7 @@ def _apply_sidecar_chloe_tool(
             extra.append(str(snap["last_played_at"]))
         msg = f"Last launcher session: **{label or 'recorded'}**"
         if extra:
-            msg += " (" + " · ".join(extra) + ")"
+            msg += " (" + " Â· ".join(extra) + ")"
         return True, msg, snap
 
     if tool == "list_local_builds":
@@ -1289,13 +1292,13 @@ def remote_unavailable() -> JSONResponse:
 
 async def presence_bridge_loop() -> None:
     """Hold authenticated remote /v1/ws using sKEY; forward frames to local /ws."""
-    global _presence_wake
+    global _presence_wake, _presence_remote_ws
     try:
         import websockets
     except ImportError:
         await emit_log(
             "WARNING",
-            "websockets package missing — presence bridge disabled",
+            "websockets package missing â€” presence bridge disabled",
         )
         return
 
@@ -1314,7 +1317,7 @@ async def presence_bridge_loop() -> None:
 
         url = f"{PRESENCE_WS_URL}?token={token}"
         try:
-            await emit_log("INFO", "Connecting presence…")
+            await emit_log("INFO", "Connecting presenceâ€¦")
             headers: dict[str, str] = {}
             if _skey_user_agent:
                 headers["User-Agent"] = _skey_user_agent
@@ -1326,6 +1329,8 @@ async def presence_bridge_loop() -> None:
                 additional_headers=headers or None,
             ) as remote:
                 await emit_log("SUCCESS", "Presence connected")
+                async with _presence_remote_lock:
+                    _presence_remote_ws = remote
                 asyncio.create_task(_sync_launcher_state_to_api())
 
                 async def ping_loop() -> None:
@@ -1351,11 +1356,30 @@ async def presence_bridge_loop() -> None:
                         await ping_task
                     except asyncio.CancelledError:
                         pass
+                    async with _presence_remote_lock:
+                        if _presence_remote_ws is remote:
+                            _presence_remote_ws = None
         except asyncio.CancelledError:
             raise
         except Exception as e:
+            async with _presence_remote_lock:
+                _presence_remote_ws = None
             await emit_log("WARNING", f"Presence disconnected: {e}")
             await asyncio.sleep(5)
+
+
+async def forward_to_presence_ws(frame: dict[str, Any]) -> bool:
+    """Uplink React live_share join/leave to the remote api /v1/ws socket."""
+    async with _presence_remote_lock:
+        remote = _presence_remote_ws
+    if remote is None:
+        return False
+    try:
+        await remote.send(json.dumps(frame))
+        return True
+    except Exception as e:
+        await emit_log("WARNING", f"Presence WS uplink failed: {e}")
+        return False
 
 
 async def guilds_chat_bridge_loop() -> None:
@@ -1366,7 +1390,7 @@ async def guilds_chat_bridge_loop() -> None:
     except ImportError:
         await emit_log(
             "WARNING",
-            "websockets package missing — guilds chat bridge disabled",
+            "websockets package missing â€” guilds chat bridge disabled",
         )
         return
 
@@ -1385,7 +1409,7 @@ async def guilds_chat_bridge_loop() -> None:
 
         url = f"{GUILDS_WS_URL}?token={token}"
         try:
-            await emit_log("INFO", "Connecting guilds chat…")
+            await emit_log("INFO", "Connecting guilds chatâ€¦")
             headers: dict[str, str] = {}
             if _skey_user_agent:
                 headers["User-Agent"] = _skey_user_agent
@@ -1470,7 +1494,7 @@ async def lifespan(app: FastAPI):
     _presence_wake = asyncio.Event()
     _guilds_ws_wake = asyncio.Event()
     try:
-        await emit_log("INFO", "Loading SDK…")
+        await emit_log("INFO", "Loading SDKâ€¦")
         await emit_log("INFO", f"Remote bases: {describe_bases()}")
         app.state.sdk = await cliX.Client.create(http=app.state.http)
         # Guarantee branding upload ops even on older remote manifests.
@@ -1500,7 +1524,7 @@ async def lifespan(app: FastAPI):
         app.state.remote_error = str(e)
         await emit_log(
             "WARNING",
-            f"SDK unavailable — running local-only ({e})",
+            f"SDK unavailable â€” running local-only ({e})",
             stack=traceback.format_exc(),
         )
         load_keys_from_keyring(None)
@@ -1526,7 +1550,7 @@ app = FastAPI(title="CultForge Client", version=APP_VERSION, lifespan=lifespan)
 app.add_middleware(
     CORSMiddleware,
     # Dev Vite + Tauri webview origins. Windows WebView2 defaults to
-    # http://tauri.localhost (not https) — missing that marks the UI "offline"
+    # http://tauri.localhost (not https) â€” missing that marks the UI "offline"
     # even while client.exe is healthy and talking to the remote API.
     allow_origins=[
         "http://localhost:1420",
@@ -1546,7 +1570,7 @@ app.add_middleware(
 
 @app.middleware("http")
 async def loopback_secret_middleware(request: Request, call_next):
-    # Browsers preflight cross-origin requests (1420 → sidecar port) without custom
+    # Browsers preflight cross-origin requests (1420 â†’ sidecar port) without custom
     # headers; rejecting OPTIONS breaks all sidecar fetches and shows offline.
     if request.method == "OPTIONS":
         return await call_next(request)
@@ -1569,7 +1593,7 @@ async def quiet_status_log_middleware(request: Request, call_next):
     path = request.url.path
     status_line = status_for_path(path, request.method)
     if status_line:
-        await emit_log("INFO", f"{status_line}…")
+        await emit_log("INFO", f"{status_line}â€¦")
     response = await call_next(request)
     if status_line and response.status_code >= 400:
         await emit_log(
@@ -1640,7 +1664,7 @@ def _subprocess_hidden_kwargs() -> dict[str, Any]:
     """Avoid flashing a console when spawning Windows CLI helpers (nvidia-smi)."""
     if sys.platform != "win32":
         return {}
-    # CREATE_NO_WINDOW = 0x08000000 — available on Python 3.7+ as subprocess constant.
+    # CREATE_NO_WINDOW = 0x08000000 â€” available on Python 3.7+ as subprocess constant.
     flags = getattr(subprocess, "CREATE_NO_WINDOW", 0x08000000)
     return {"creationflags": flags}
 
@@ -1778,7 +1802,7 @@ async def system_metrics():
             _metrics_logged_once = True
             await emit_log(
                 "INFO",
-                f"System metrics ready (CPU {payload['cpu_percent']}% · "
+                f"System metrics ready (CPU {payload['cpu_percent']}% Â· "
                 f"RAM {payload['ram_used_gb']}/{payload['ram_total_gb']} GB)",
             )
         return payload
@@ -1827,7 +1851,7 @@ async def discord_widget(guild_id: str, request: Request):
             status_code=404,
             content={
                 "error": "widget_disabled",
-                "message": "Server widget is disabled or guild not found. Enable it in Discord Server Settings → Widget.",
+                "message": "Server widget is disabled or guild not found. Enable it in Discord Server Settings â†’ Widget.",
             },
         )
     if response.status_code == 429:
@@ -1859,7 +1883,7 @@ async def discord_widget(guild_id: str, request: Request):
         )
 
 
-# Allowlisted guild media paths only — never an open /v1/guilds/* proxy.
+# Allowlisted guild media paths only â€” never an open /v1/guilds/* proxy.
 _GUILD_MEDIA_PATH_RE = re.compile(
     r"^"
     r"[^/]+/(?:icon|banner)"
@@ -1911,7 +1935,7 @@ async def _get_bytes_allowlisted(
 ) -> tuple[httpx.Response | None, int]:
     """GET bytes without following redirects off the CultForge allowlist.
 
-    Avatar endpoints may 302 to Google/Discord CDNs — set
+    Avatar endpoints may 302 to Google/Discord CDNs â€” set
     ``allow_avatar_cdn_redirects`` for those fetches only.
     """
     current = url
@@ -1982,7 +2006,7 @@ _PROFILE_AVATAR_RE = re.compile(
 
 
 def _user_id_from_avatar_url(url: str | None) -> str:
-    """Extract ``cf_…`` (or slash-id) from a CultForge profile avatar URL."""
+    """Extract ``cf_â€¦`` (or slash-id) from a CultForge profile avatar URL."""
     text = _decode_oauth_avatar_url(url)
     if not text:
         return ""
@@ -2014,7 +2038,7 @@ async def proxy_user_avatar(user_id: str, request: Request) -> Response:
     browser User-Agent / fingerprint so the image loads.
 
     CultForge user_ids may contain '/' (e.g. cult__xxxx/1234). Remote must use
-    /v1/profile/{user_id:path}/avatar with the slash left intact — percent-encoding
+    /v1/profile/{user_id:path}/avatar with the slash left intact â€” percent-encoding
     %2F alone does not fix an unfixed {user_id} route.
 
     OAuth callback passes ``avatar_url=https://api.cultforge.com/v1/profile/{id}/avatar``
@@ -2186,7 +2210,7 @@ async def proxy_guilds_host_media(media_path: str, request: Request) -> Response
 async def proxy_guild_branding(
     guild_id: str, kind: str, request: Request
 ) -> Response:
-    """Compat wrapper for icon/banner → /media/guilds/{id}/{kind}."""
+    """Compat wrapper for icon/banner â†’ /media/guilds/{id}/{kind}."""
     asset = kind.strip().lower()
     if asset not in ("icon", "banner"):
         return JSONResponse(
@@ -2215,11 +2239,14 @@ async def websocket_endpoint(websocket: WebSocket, client_id: str = "default"):
                 continue
             if not isinstance(frame, dict):
                 continue
-            event_type = str(frame.get("type") or "")
+            event_type = str(frame.get("type") or "").lower()
             if event_type.startswith("guild.channel") or event_type.startswith(
                 "guild.chat"
             ):
                 await forward_to_guilds_ws(frame)
+            elif event_type in ("join", "leave", "live_share.join", "live_share.leave"):
+                # Live share room subscribe on api /v1/ws (data.room from GET live).
+                await forward_to_presence_ws(frame)
     except WebSocketDisconnect:
         pass
     finally:
@@ -2287,7 +2314,7 @@ def _prefer_display_avatar(
     """Pick the CultForge profile avatar URL from OAuth callback / profile.
 
     OAuth callback ``avatar_url`` is the hosted profile avatar, e.g.
-    ``https://api.cultforge.com/v1/profile/cf_…/avatar`` (URL-encoded in the
+    ``https://api.cultforge.com/v1/profile/cf_â€¦/avatar`` (URL-encoded in the
     query string). Prefer that over empty profile fields.
     """
     oauth = _decode_oauth_avatar_url(oauth_avatar)
@@ -2358,7 +2385,7 @@ def _callback_avatar_src(
     """Avatar URL for the browser callback page.
 
     Never point <img> at api.cultforge.com directly (Cloudflare 1010). Always
-    use the sidecar ``/media/avatar/{user_id}`` proxy when we know the id —
+    use the sidecar ``/media/avatar/{user_id}`` proxy when we know the id â€”
     including when OAuth ``avatar_url`` is the hosted profile avatar URL.
     """
     preferred = _prefer_display_avatar(cultforge_avatar, oauth_avatar)
@@ -2500,7 +2527,7 @@ def _render_auth_callback_html(
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>CultForge · Authentication</title>
+  <title>CultForge Â· Authentication</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Sora:wght@500;600;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet" />
@@ -2845,7 +2872,7 @@ async def auth_callback(
     )
 
     global _oauth_pending
-    # Always hand the launcher a sidecar-proxied avatar when we know the uid —
+    # Always hand the launcher a sidecar-proxied avatar when we know the uid â€”
     # never raw api.cultforge.com (CF 1010 in the webview).
     if user_id:
         display_avatar_for_client = _sidecar_avatar_src(
@@ -2871,9 +2898,9 @@ async def auth_callback(
         "provider": provider,
         "ts": datetime.now(timezone.utc).isoformat(),
     }
-    # Always notify the launcher (do not gate on message text — e.g.
+    # Always notify the launcher (do not gate on message text â€” e.g.
     # "Authenticated Succesfully!" has no "oauth" substring).
-    # Never broadcast the JWT — the SDK already holds it in-process.
+    # Never broadcast the JWT â€” the SDK already holds it in-process.
     await broadcast_ws(dict(_oauth_pending))
 
     return HTMLResponse(
@@ -2922,7 +2949,7 @@ async def set_session(request: Request) -> JSONResponse:
 
 @app.get("/auth/session")
 async def get_session(request: Request) -> JSONResponse:
-    """Report whether a session is loaded — never return the JWT."""
+    """Report whether a session is loaded â€” never return the JWT."""
     token = current_session_key()
     sdk: cliX.Client | None = request.app.state.sdk
     if sdk is not None and not token:
@@ -3187,7 +3214,7 @@ async def music_lobby_theme() -> JSONResponse:
 
 @app.get("/music/lobby/audio")
 async def music_lobby_audio(request: Request):
-    """Same-origin MP3 proxy — remote static file has no CORS for Web Audio."""
+    """Same-origin MP3 proxy â€” remote static file has no CORS for Web Audio."""
     if not _upstream_host_allowed(LOBBY_AUDIO_STATIC):
         return JSONResponse(
             status_code=502,
@@ -3818,7 +3845,7 @@ def _with_http_error(response: httpx.Response, body: Any) -> Any:
 
 
 async def _enqueue_agent_command(sdk: cliX.Client, params: dict[str, Any]) -> Any:
-    """Always POST /v1/agents/{node_id}/commands — never fall through to GET list."""
+    """Always POST /v1/agents/{node_id}/commands â€” never fall through to GET list."""
     node_id = str(params.get("node_id") or "").strip()
     action = str(params.get("action") or params.get("command") or "").strip()
     if not node_id or not action:
@@ -3906,8 +3933,8 @@ async def send(module: str, command: str, request: Request) -> JSONResponse:
                     continue
                 params[str(key)] = value
 
-    # Branding uploads may be missing from older frozen SDK manifests —
-    # proxy them directly so Manage → Branding works without a full re-freeze
+    # Branding uploads may be missing from older frozen SDK manifests â€”
+    # proxy them directly so Manage â†’ Branding works without a full re-freeze
     # as long as this client.py is what is running.
     if module == "guilds" and command in {
         "upload_guild_icon",
@@ -3960,7 +3987,7 @@ async def send(module: str, command: str, request: Request) -> JSONResponse:
         )
     code = 200
     if isinstance(data, dict) and data.get("redirect") is True:
-        # Purposeful remote redirect (e.g. OAuth) — return payload as 200 so
+        # Purposeful remote redirect (e.g. OAuth) â€” return payload as 200 so
         # the UI can open Location without treating 307 as failure.
         return JSONResponse(status_code=200, content=data)
     if isinstance(data, dict) and "code" in data:

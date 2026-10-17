@@ -14,11 +14,27 @@ export type CultAgentNode = {
   name: string;
   status: string;
   guildId?: string | null;
+  /** Account that owns this node (API owner_id). */
+  ownerId?: string | null;
+  /** Display handle for the owner when known. */
+  ownerHandle?: string | null;
   lastSeenAt?: string | null;
   platform?: string | null;
   version?: string | null;
   raw: Record<string, unknown>;
 };
+
+/** True when the signed-in user owns this node. */
+export function isAgentNodeOwnedBy(
+  node: CultAgentNode,
+  userId: string | null | undefined,
+): boolean {
+  const me = (userId ?? "").trim();
+  if (!me) return false;
+  const owner = (node.ownerId ?? "").trim();
+  if (!owner) return true; // treat missing owner as owned (personal /v1/agents lists)
+  return owner === me;
+}
 
 /** True when the node credentials were revoked (unregister). */
 export function isAgentNodeRevoked(node: CultAgentNode): boolean {
@@ -220,6 +236,20 @@ function nodeFromRecord(row: unknown): CultAgentNode | null {
     const ms = lastSeenRaw < 1e12 ? lastSeenRaw * 1000 : lastSeenRaw;
     lastSeenAt = new Date(ms).toISOString();
   }
+  const ownerId = String(
+    obj.owner_id ?? obj.ownerId ?? obj.user_id ?? obj.userId ?? "",
+  ).trim();
+  const ownerHandle = String(
+    obj.owner_handle ??
+      obj.ownerHandle ??
+      obj.owner_username ??
+      obj.ownerUsername ??
+      obj.owner_name ??
+      obj.ownerName ??
+      obj.handle_name ??
+      obj.username ??
+      "",
+  ).trim();
   return {
     id,
     name,
@@ -230,6 +260,8 @@ function nodeFromRecord(row: unknown): CultAgentNode | null {
         : typeof obj.guildId === "string"
           ? obj.guildId
           : null,
+    ownerId: ownerId || null,
+    ownerHandle: ownerHandle || null,
     lastSeenAt,
     platform:
       typeof obj.platform === "string"
@@ -549,16 +581,21 @@ export async function listMyCultAgentNodes(
   }
 }
 
-/** GET /v1/guilds/{guild_id}/agents */
+/** GET /v1/guilds/{guild_id}/agents?scope=mine|all — default mine. */
 export async function listGuildCultAgentNodes(
   guildId: string,
   limit = 50,
-  opts: { includeRevoked?: boolean; dedupe?: boolean } = {},
+  opts: {
+    includeRevoked?: boolean;
+    dedupe?: boolean;
+    scope?: "mine" | "all";
+  } = {},
 ): Promise<CultAgentNode[]> {
   try {
     const raw = await send<unknown>("api", "list_cultagent_nodes_for_a_guild", {
       guild_id: guildId,
       limit: String(limit),
+      scope: opts.scope ?? "mine",
     });
     const all = unwrapList(raw)
       .map(nodeFromRecord)
@@ -1270,6 +1307,8 @@ export type CultAgentBinding = {
   personalServerId?: string;
   workloadId?: string;
   localServerId?: string;
+  /** Authoritative primary binding for tunnel / admin focus. */
+  isPrimary: boolean;
   revokedAt?: string | null;
   createdAt: string;
   raw: Record<string, unknown>;
@@ -1290,6 +1329,10 @@ function bindingFromRecord(row: unknown): CultAgentBinding | null {
         .join(":"),
   ).trim();
   if (!id) return null;
+  const isPrimary =
+    obj.is_primary === true ||
+    obj.isPrimary === true ||
+    String(obj.is_primary ?? obj.isPrimary ?? "").toLowerCase() === "true";
   return {
     id,
     nodeId: String(obj.node_id ?? obj.nodeId ?? ""),
@@ -1317,6 +1360,7 @@ function bindingFromRecord(row: unknown): CultAgentBinding | null {
           : typeof obj.resource_id === "string"
             ? obj.resource_id
             : undefined,
+    isPrimary,
     revokedAt:
       typeof obj.revoked_at === "string" ? obj.revoked_at : null,
     createdAt:
@@ -1325,6 +1369,94 @@ function bindingFromRecord(row: unknown): CultAgentBinding | null {
         : new Date().toISOString(),
     raw: obj,
   };
+}
+
+/**
+ * Resolve the admin / tunnel control target for a server.
+ * Prefer preferred_agent_node_id, then binding is_primary, then first bound node.
+ * Never prefer "newest by lastSeen".
+ */
+export function resolvePrimaryAgent(opts: {
+  preferredNodeId?: string | null;
+  bindings: CultAgentBinding[];
+  nodes: CultAgentNode[];
+  serverId?: string | null;
+}): CultAgentNode | null {
+  const { preferredNodeId, bindings, nodes, serverId } = opts;
+  const active = bindings.filter((b) => !b.revokedAt);
+  const forServer = serverId
+    ? active.filter(
+        (b) =>
+          b.guildServerId === serverId ||
+          b.personalServerId === serverId ||
+          b.localServerId === serverId,
+      )
+    : active;
+  const pool = forServer.length > 0 ? forServer : active;
+  const byId = new Map(nodes.map((n) => [n.id, n]));
+
+  const pref = (preferredNodeId ?? "").trim();
+  if (pref && byId.has(pref)) {
+    const bound = pool.some((b) => b.nodeId === pref);
+    if (bound || pool.length === 0) return byId.get(pref) ?? null;
+  }
+
+  const primaryBind = pool.find((b) => b.isPrimary);
+  if (primaryBind && byId.has(primaryBind.nodeId)) {
+    return byId.get(primaryBind.nodeId) ?? null;
+  }
+
+  for (const b of pool) {
+    const n = byId.get(b.nodeId);
+    if (n) return n;
+  }
+
+  return nodes[0] ?? null;
+}
+
+/** PUT /v1/guilds/{guild_id}/servers/{server_id}/primary-agent */
+export async function setGuildServerPrimaryAgent(
+  guildId: string,
+  serverId: string,
+  nodeId: string,
+): Promise<CultAgentBinding> {
+  try {
+    const raw = await sendMutate(
+      "api",
+      "set_primary_agent_for_a_guild_server",
+      { guild_id: guildId, server_id: serverId, node_id: nodeId },
+      "PUT",
+    );
+    const inner = asRecord(raw)?.data ?? raw;
+    const binding = bindingFromRecord(inner);
+    if (!binding)
+      throw new CultAgentApiError("Primary-agent response malformed", 502);
+    return binding;
+  } catch (err) {
+    throw wrap("Could not set guild server primary agent", err);
+  }
+}
+
+/** PUT /v1/me/servers/{server_id}/primary-agent */
+export async function setPersonalServerPrimaryAgent(
+  serverId: string,
+  nodeId: string,
+): Promise<CultAgentBinding> {
+  try {
+    const raw = await sendMutate(
+      "api",
+      "set_primary_agent_for_a_personal_server",
+      { server_id: serverId, node_id: nodeId },
+      "PUT",
+    );
+    const inner = asRecord(raw)?.data ?? raw;
+    const binding = bindingFromRecord(inner);
+    if (!binding)
+      throw new CultAgentApiError("Primary-agent response malformed", 502);
+    return binding;
+  } catch (err) {
+    throw wrap("Could not set personal server primary agent", err);
+  }
 }
 
 /** GET /v1/agents/{node_id}/bindings */

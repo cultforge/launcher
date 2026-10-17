@@ -13,6 +13,7 @@ import { useAppStore } from "../../../../userstore";
 import { useNavigationStore } from "../../../../typlibs";
 import { authFailureMessage, fetchMyProfile, isHardAuthError, isUnauthorizedError, updateHandle, updateMyAvatar } from "../../../../lib/client";
 import { isProfileSuccess } from "../../../../lib/authProfile";
+import { ProfileIdentityCard } from "../../../profile/ProfileIdentityCard";
 
 const PROFILE_TABS: { id: PlayerProfileTab; label: string }[] = [
   { id: "overview", label: "Overview" },
@@ -142,7 +143,13 @@ function LevelStatCard({ level }: { level: number }) {
   );
 }
 
-function OverviewTab({ player }: { player: FriendProfile }) {
+function OverviewTab({
+  player,
+  isSelf,
+}: {
+  player: FriendProfile;
+  isSelf?: boolean;
+}) {
   const rank = player.rankings[0];
   const percentile = rank
     ? Math.max(1, Math.round(((rank.of - rank.rank + 1) / rank.of) * 100))
@@ -157,6 +164,8 @@ function OverviewTab({ player }: { player: FriendProfile }) {
           <StatCard label="Blocks" value={compactNumber(player.stats.blocksPlaced)} />
         </div>
 
+        <ProfileIdentityCard userId={player.id} isSelf={isSelf} />
+
         <section className="cf-panel rounded-xl p-4">
           <div className="flex items-end justify-between gap-3">
             <div>
@@ -164,7 +173,7 @@ function OverviewTab({ player }: { player: FriendProfile }) {
                 Competitive standing
               </h3>
               <p className="mt-1 text-[10px] text-text-muted">
-                {rank?.label ?? "Global performance"}
+                {rank?.label ?? "Legacy / friend card (display only)"}
               </p>
             </div>
             <div className="text-right">
@@ -1061,7 +1070,9 @@ export function PlayerProfilePage() {
         aria-labelledby={`profile-tab-${activeTab}`}
         className="pb-4"
       >
-        {activeTab === "overview" && <OverviewTab player={player} />}
+        {activeTab === "overview" && (
+          <OverviewTab player={player} isSelf={isSelf} />
+        )}
         {activeTab === "stats" && <StatsTab player={player} />}
         {activeTab === "rankings" && <RankingsTab player={player} />}
         {activeTab === "activity" && <ActivityTab player={player} />}

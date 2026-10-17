@@ -1,5 +1,7 @@
 // src/ico.tsx
 
+import { cn } from "../lib/cn";
+
 interface IconProps {
   icon: any;
   size?: number | string;
@@ -15,13 +17,20 @@ export const Icon = ({
 }: IconProps) => {
   if (typeof IconComponent === "string") {
     return (
-      <img src={IconComponent} width={size} className={className} alt="Icon" />
+      <img
+        src={IconComponent}
+        width={size}
+        height={size}
+        className={cn("block shrink-0", className)}
+        alt=""
+      />
     );
   }
   return (
     <IconComponent
       size={size}
-      className={className}
+      className={cn("block shrink-0", className)}
+      style={{ display: "block" }}
       {...(weight && { weight })}
     />
   );

@@ -309,6 +309,17 @@ class Client:
         )
         self._ensure_module_command(
             "api",
+            "get_guild_server_live_share_snapshot",
+            "/v1/guilds/{guild_id}/agents/live",
+            "get",
+        )
+        self._ensure_api_command(
+            "get_personal_server_live_share",
+            "/v1/me/servers/{server_id}/live",
+            "get",
+        )
+        self._ensure_module_command(
+            "api",
             "list_recent_agent_gameplay_events_for_a_guild",
             "/v1/guilds/{guild_id}/agents/events",
             "get",
@@ -401,6 +412,145 @@ class Client:
             "unbind_personal_server_from_agent",
             "/v1/me/servers/{server_id}/agents/{node_id}/bind",
             "delete",
+        )
+        self._ensure_module_command(
+            "api",
+            "set_primary_agent_for_a_guild_server",
+            "/v1/guilds/{guild_id}/servers/{server_id}/primary-agent",
+            "put",
+        )
+        self._ensure_api_command(
+            "set_primary_agent_for_a_personal_server",
+            "/v1/me/servers/{server_id}/primary-agent",
+            "put",
+        )
+        # 0.2.4 rankings / profile / personal hosting
+        self._ensure_module_command(
+            "guilds",
+            "guild_leaderboard_rankings",
+            "/v1/guilds/{guild_id}/rankings",
+            "get",
+        )
+        self._ensure_api_command(
+            "global_player_rankings",
+            "/v1/rankings/players",
+            "get",
+        )
+        self._ensure_api_command(
+            "global_guild_rankings",
+            "/v1/rankings/guilds",
+            "get",
+        )
+        self._ensure_api_command(
+            "get_profile_card",
+            "/v1/profile/{identifier}/card",
+            "get",
+        )
+        self._ensure_api_command(
+            "set_my_active_title",
+            "/v1/profile/me/active-title",
+            "patch",
+        )
+        self._ensure_api_command(
+            "set_my_featured_achievements",
+            "/v1/profile/me/featured-achievements",
+            "patch",
+        )
+        self._ensure_api_command(
+            "list_achievements_catalog",
+            "/v1/achievements",
+            "get",
+        )
+        self._ensure_api_command(
+            "list_titles_catalog",
+            "/v1/titles",
+            "get",
+        )
+        self._ensure_api_command(
+            "discover_public_servers",
+            "/v1/servers/discover",
+            "get",
+        )
+        self._ensure_api_command(
+            "update_personal_server_acl",
+            "/v1/me/servers/{server_id}/acl",
+            "post",
+        )
+        self._ensure_api_command(
+            "kick_personal_server_player",
+            "/v1/me/servers/{server_id}/players/kick",
+            "post",
+        )
+        # Guild roles + frozen permission catalog.
+        self._ensure_module_command(
+            "guilds",
+            "list_guild_permission_catalog",
+            "/v1/guilds/permissions",
+            "get",
+        )
+        self._ensure_module_command(
+            "guilds",
+            "list_guild_roles",
+            "/v1/guilds/{guild_id}/roles",
+            "get",
+        )
+        self._ensure_module_command(
+            "guilds",
+            "create_guild_role",
+            "/v1/guilds/{guild_id}/roles",
+            "post",
+        )
+        self._ensure_module_command(
+            "guilds",
+            "update_guild_role",
+            "/v1/guilds/{guild_id}/roles/{role_id}",
+            "patch",
+        )
+        self._ensure_module_command(
+            "guilds",
+            "assign_role_to_member",
+            "/v1/guilds/{guild_id}/members/{target_user_id}/roles",
+            "post",
+        )
+        self._ensure_module_command(
+            "guilds",
+            "revoke_role_from_member",
+            "/v1/guilds/{guild_id}/members/{target_user_id}/roles/{role_id}",
+            "delete",
+        )
+        # Party lobbies (api host).
+        self._ensure_api_command("create_party_lobby", "/v1/lobbies", "post")
+        self._ensure_api_command("get_my_party_lobby", "/v1/lobbies/me", "get")
+        self._ensure_api_command(
+            "get_party_lobby", "/v1/lobbies/{lobby_id}", "get"
+        )
+        self._ensure_api_command(
+            "update_party_lobby", "/v1/lobbies/{lobby_id}", "patch"
+        )
+        self._ensure_api_command(
+            "invite_to_party_lobby", "/v1/lobbies/{lobby_id}/invite", "post"
+        )
+        self._ensure_api_command("join_party_lobby", "/v1/lobbies/join", "post")
+        self._ensure_api_command(
+            "set_party_lobby_ready", "/v1/lobbies/{lobby_id}/ready", "post"
+        )
+        self._ensure_api_command(
+            "start_party_lobby", "/v1/lobbies/{lobby_id}/start", "post"
+        )
+        self._ensure_api_command(
+            "leave_party_lobby", "/v1/lobbies/{lobby_id}/leave", "post"
+        )
+        self._ensure_api_command(
+            "kick_from_party_lobby", "/v1/lobbies/{lobby_id}/kick", "post"
+        )
+        self._ensure_api_command(
+            "cancel_party_lobby", "/v1/lobbies/{lobby_id}/cancel", "post"
+        )
+        self._ensure_module_command(
+            "guilds",
+            "list_guild_lobbies",
+            "/v1/guilds/{guild_id}/lobbies",
+            "get",
         )
 
     def _override_api_path(self, command_id: str, new_path: str) -> None:

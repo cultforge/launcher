@@ -501,7 +501,7 @@ export function ConfigurationPanel() {
             />
             <ToggleRow
               label="CPU pin (experimental)"
-              description="Pin Minecraft to a dedicated core at high priority and keep other processes off that core when possible (Windows)"
+              description="Run Minecraft on performance cores at high priority (Windows). On hybrid CPUs, prefers P-cores and nudges other apps onto efficiency cores when possible — not a single-core lock."
               checked={draft.cpuPin}
               onChange={(v) => patch({ cpuPin: v })}
             />

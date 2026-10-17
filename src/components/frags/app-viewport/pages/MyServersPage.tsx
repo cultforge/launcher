@@ -2,26 +2,34 @@ import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { usePersonalServersStore } from "../../../../stores/personalServers";
 import {
+  canJoinPersonalServer,
+  kickPersonalServerPlayer,
   personalServerJoinAddress,
+  updatePersonalServerAcl,
 } from "../../../../lib/personalServersApi";
 import { useMpingWatchList } from "../../../../hooks/useMpingWatchList";
 import {
-  listAccessibleCultAgentNodes,
+  listMyCultAgentNodes,
   bindPersonalServer,
   unbindPersonalServer,
   listAgentBindings,
   isAgentNodeOnline,
   agentModeLabel,
+  setPersonalServerPrimaryAgent,
   type CultAgentNode,
   type CultAgentBinding,
 } from "../../../../lib/cultAgentApi";
 import { useNavigationStore } from "../../../../typlibs";
 import { AgentPersonalConnectPanel } from "../../../servers/agent/AgentPersonalConnectPanel";
-import { joinedGuilds } from "../../../../data/guilds";
-import type { UserPersonalServerRecord } from "../../../../types/catalog";
+import { LiveSharePanel } from "../../../servers/LiveSharePanel";
+import type {
+  PersonalServerJoinPolicy,
+  PersonalServerVisibility,
+  UserPersonalServerRecord,
+} from "../../../../types/catalog";
 import { Icon } from "../../../ico";
 import { AppIcons } from "../../../icons";
-import { CopyButton } from "../../../CopyButton";
+import { useAppStore } from "../../../../userstore";
 
 function ServerCard({
   server,
@@ -42,7 +50,12 @@ function ServerCard({
   onDelete: () => void;
   onSelect: () => void;
 }) {
+  const me = useAppStore((s) => s.currentUser);
   const join = personalServerJoinAddress(server);
+  const gate = canJoinPersonalServer(server, {
+    userId: me?.id,
+    username: me?.name,
+  });
   const dotClass =
     liveOnline === true
       ? "bg-state-success"
@@ -62,6 +75,9 @@ function ServerCard({
         />
         <span className="truncate text-[13px] font-semibold text-text-primary">
           {server.name}
+        </span>
+        <span className="rounded-full bg-white/6 px-1.5 py-0.5 text-[7px] font-bold uppercase tracking-wider text-text-muted">
+          {server.visibility}
         </span>
         {server.addressSource === "tunnel" ? (
           <span className="rounded-full bg-primary-base/12 px-1.5 py-0.5 text-[7px] font-bold uppercase tracking-wider text-primary-base">
@@ -97,13 +113,27 @@ function ServerCard({
           </div>
         )}
       </div>
+      {!gate.ok ? (
+        <p className="text-[10px] text-state-warning">{gate.reason}</p>
+      ) : null}
       <div className="flex gap-1.5 mt-1">
-        <CopyButton
-          text={`${join.address}:${join.port}`}
-          label="Copy address"
-          successMessage="Address copied"
-          className="rounded-md px-2 py-1 text-[9px]"
-        />
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            if (!gate.ok) {
+              toast.error(gate.reason || "Join policy blocks this server");
+              return;
+            }
+            void navigator.clipboard
+              .writeText(`${join.address}:${join.port}`)
+              .then(() => toast.success("Address copied"))
+              .catch(() => toast.error("Could not copy"));
+          }}
+          className="rounded-md border border-white/12 px-2 py-1 text-[9px] text-text-secondary cursor-pointer hover:bg-white/5"
+        >
+          Copy address
+        </button>
         <button
           type="button"
           onClick={(e) => {
@@ -140,6 +170,8 @@ export function ServerEditor({
     serverAddress: string;
     port: number;
     themeColor: string;
+    visibility: PersonalServerVisibility;
+    joinPolicy: PersonalServerJoinPolicy;
   }) => void;
   onCancel: () => void;
 }) {
@@ -147,6 +179,12 @@ export function ServerEditor({
   const [addr, setAddr] = useState(server?.serverAddress ?? "");
   const [port, setPort] = useState(server?.port ?? 25565);
   const [color, setColor] = useState(server?.themeColor ?? "#7A2CFF");
+  const [visibility, setVisibility] = useState<PersonalServerVisibility>(
+    server?.visibility ?? "private",
+  );
+  const [joinPolicy, setJoinPolicy] = useState<PersonalServerJoinPolicy>(
+    server?.joinPolicy ?? "allowlist",
+  );
 
   return (
     <div className="cf-panel rounded-xl p-4 flex flex-col gap-3">
@@ -182,6 +220,37 @@ export function ServerEditor({
           />
         </label>
       </div>
+      <div className="grid grid-cols-2 gap-2">
+        <label className="flex flex-col gap-1 text-[10px] text-text-muted">
+          Visibility
+          <select
+            value={visibility}
+            onChange={(e) =>
+              setVisibility(e.target.value as PersonalServerVisibility)
+            }
+            className="rounded-md border border-border-strong bg-black/20 px-2.5 py-2 text-[11px] text-text-primary"
+          >
+            <option value="private">private</option>
+            <option value="unlisted">unlisted</option>
+            <option value="public">public</option>
+          </select>
+        </label>
+        <label className="flex flex-col gap-1 text-[10px] text-text-muted">
+          Join policy
+          <select
+            value={joinPolicy}
+            onChange={(e) =>
+              setJoinPolicy(e.target.value as PersonalServerJoinPolicy)
+            }
+            className="rounded-md border border-border-strong bg-black/20 px-2.5 py-2 text-[11px] text-text-primary"
+          >
+            <option value="open">open</option>
+            <option value="allowlist">allowlist</option>
+            <option value="friends">friends</option>
+            <option value="guild_members">guild_members</option>
+          </select>
+        </label>
+      </div>
       <label className="flex items-center gap-2 text-[10px] text-text-muted">
         Theme color
         <input
@@ -202,6 +271,8 @@ export function ServerEditor({
               serverAddress: addr.trim(),
               port,
               themeColor: color,
+              visibility,
+              joinPolicy,
             })
           }
           className="cf-btn-primary rounded-lg px-4 py-2 text-[11px] font-semibold cursor-pointer disabled:opacity-40"
@@ -214,6 +285,159 @@ export function ServerEditor({
           className="rounded-lg border border-white/12 px-4 py-2 text-[11px] text-text-secondary cursor-pointer"
         >
           Cancel
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function PersonalHostingPanel({
+  server,
+  onUpdated,
+}: {
+  server: UserPersonalServerRecord;
+  onUpdated: () => void;
+}) {
+  const [allowText, setAllowText] = useState(
+    server.allowlistUsernames.join(", "),
+  );
+  const [kickName, setKickName] = useState("");
+  const [busy, setBusy] = useState(false);
+  const updateServer = usePersonalServersStore((s) => s.update);
+
+  const saveAcl = async () => {
+    setBusy(true);
+    try {
+      await updatePersonalServerAcl(server.id, {
+        allowlistUsernames: allowText
+          .split(/[,;\s]+/)
+          .map((s) => s.trim())
+          .filter(Boolean),
+        allowlistUserIds: server.allowlistUserIds,
+      });
+      toast.success("Allow list saved");
+      onUpdated();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "ACL failed");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const onKick = async (ban: boolean) => {
+    if (!kickName.trim()) return;
+    if (ban && !window.confirm(`Ban ${kickName.trim()} and denylist?`)) return;
+    setBusy(true);
+    try {
+      await kickPersonalServerPlayer(server.id, {
+        minecraftName: kickName.trim(),
+        ban,
+      });
+      toast.success(ban ? "Ban enqueued" : "Kick enqueued");
+      setKickName("");
+      onUpdated();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Kick failed");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="flex flex-col gap-3 rounded-xl border border-white/8 bg-black/15 p-3">
+      <h4 className="text-[11px] font-semibold text-text-primary">
+        Hosting & access
+      </h4>
+      <div className="grid grid-cols-2 gap-2">
+        <label className="flex flex-col gap-1 text-[10px] text-text-muted">
+          Visibility
+          <select
+            value={server.visibility}
+            disabled={busy}
+            onChange={(e) => {
+              void updateServer(server.id, {
+                visibility: e.target.value as PersonalServerVisibility,
+              })
+                .then(() => toast.success("Visibility updated"))
+                .catch((err) =>
+                  toast.error(
+                    err instanceof Error ? err.message : "Update failed",
+                  ),
+                );
+            }}
+            className="rounded-md border border-white/10 bg-black/25 px-2 py-1.5 text-[11px] text-text-primary"
+          >
+            <option value="private">private</option>
+            <option value="unlisted">unlisted</option>
+            <option value="public">public</option>
+          </select>
+        </label>
+        <label className="flex flex-col gap-1 text-[10px] text-text-muted">
+          Join policy
+          <select
+            value={server.joinPolicy}
+            disabled={busy}
+            onChange={(e) => {
+              void updateServer(server.id, {
+                joinPolicy: e.target.value as PersonalServerJoinPolicy,
+              })
+                .then(() => toast.success("Join policy updated"))
+                .catch((err) =>
+                  toast.error(
+                    err instanceof Error ? err.message : "Update failed",
+                  ),
+                );
+            }}
+            className="rounded-md border border-white/10 bg-black/25 px-2 py-1.5 text-[11px] text-text-primary"
+          >
+            <option value="open">open</option>
+            <option value="allowlist">allowlist</option>
+            <option value="friends">friends</option>
+            <option value="guild_members">guild_members</option>
+          </select>
+        </label>
+      </div>
+      <label className="flex flex-col gap-1 text-[10px] text-text-muted">
+        Allowlist usernames (comma-separated)
+        <input
+          value={allowText}
+          onChange={(e) => setAllowText(e.target.value)}
+          className="rounded-md border border-white/10 bg-black/25 px-2 py-1.5 text-[11px] text-text-primary"
+        />
+      </label>
+      <button
+        type="button"
+        disabled={busy}
+        onClick={() => void saveAcl()}
+        className="self-start rounded-lg border border-white/12 px-3 py-1.5 text-[10px] font-semibold cursor-pointer"
+      >
+        Save ACL
+      </button>
+      <div className="flex flex-wrap items-end gap-2">
+        <label className="flex flex-col gap-1 text-[10px] text-text-muted flex-1 min-w-40">
+          Kick / ban player
+          <input
+            value={kickName}
+            onChange={(e) => setKickName(e.target.value)}
+            placeholder="Minecraft name"
+            className="rounded-md border border-white/10 bg-black/25 px-2 py-1.5 text-[11px] text-text-primary"
+          />
+        </label>
+        <button
+          type="button"
+          disabled={busy || !kickName.trim()}
+          onClick={() => void onKick(false)}
+          className="rounded-lg border border-white/12 px-3 py-1.5 text-[10px] cursor-pointer"
+        >
+          Kick
+        </button>
+        <button
+          type="button"
+          disabled={busy || !kickName.trim()}
+          onClick={() => void onKick(true)}
+          className="rounded-lg border border-state-error/30 px-3 py-1.5 text-[10px] text-state-error cursor-pointer"
+        >
+          Ban
         </button>
       </div>
     </div>
@@ -233,11 +457,7 @@ function AgentBindSection({
   const refresh = async () => {
     setLoading(true);
     try {
-      const allNodes = await listAccessibleCultAgentNodes(
-        joinedGuilds().map((g) => g.id),
-        { dedupe: true },
-      );
-      const personal = allNodes.filter((n) => !n.guildId);
+      const personal = await listMyCultAgentNodes(50, { dedupe: true });
       setNodes(personal);
       const allBindings = await Promise.all(
         personal.map((n) => listAgentBindings(n.id).catch(() => [])),
@@ -276,6 +496,21 @@ function AgentBindSection({
       } else {
         toast.error(msg);
       }
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const onMakePrimary = async (nodeId: string) => {
+    setBusy(true);
+    try {
+      await setPersonalServerPrimaryAgent(server.id, nodeId);
+      toast.success("Primary agent updated");
+      await refresh();
+    } catch (err) {
+      toast.error(
+        err instanceof Error ? err.message : "Could not set primary",
+      );
     } finally {
       setBusy(false);
     }
@@ -352,6 +587,21 @@ function AgentBindSection({
                 </span>
               )}
             </div>
+            {bound && binding && !binding.isPrimary ? (
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => void onMakePrimary(node.id)}
+                className="rounded-md border border-primary-base/30 px-2 py-1.5 text-[9px] font-semibold text-primary-base cursor-pointer"
+              >
+                Make primary
+              </button>
+            ) : null}
+            {bound && binding?.isPrimary ? (
+              <span className="rounded-full bg-primary-base/15 px-1.5 py-0.5 text-[7px] font-bold uppercase text-primary-base">
+                Primary
+              </span>
+            ) : null}
             <button
               type="button"
               disabled={busy}
@@ -546,11 +796,18 @@ export default function MyServersPage() {
       </div>
 
       {selectedServer && (
-        <div className="cf-panel rounded-xl p-4 flex flex-col gap-3">
-          <h3 className="font-sora text-[14px] font-bold text-text-primary">
-            {selectedServer.name} — PC Connection
-          </h3>
-          <AgentBindSection server={selectedServer} />
+        <div className="flex flex-col gap-3">
+          <LiveSharePanel kind="personal" serverId={selectedServer.id} />
+          <div className="cf-panel rounded-xl p-4 flex flex-col gap-3">
+            <h3 className="font-sora text-[14px] font-bold text-text-primary">
+              {selectedServer.name} — PC Connection
+            </h3>
+            <PersonalHostingPanel
+              server={selectedServer}
+              onUpdated={() => void refresh()}
+            />
+            <AgentBindSection server={selectedServer} />
+          </div>
         </div>
       )}
     </div>

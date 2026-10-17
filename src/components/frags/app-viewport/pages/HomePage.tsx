@@ -42,7 +42,6 @@ import { canLaunchBuild } from "../../../../lib/launchGate";
 import { launchMinecraft } from "../../../../lib/launchMinecraft";
 import { useLaunchStore } from "../../../../stores/launch";
 import { ShimmerButton } from "../../../magic/shimmer-button";
-
 function kindIcon(kind: ActivityKind) {
   switch (kind) {
     case "builds":
@@ -83,7 +82,7 @@ function ContinueBar() {
       variants={lift}
       initial="rest"
       whileHover="hover"
-      className="cf-panel relative flex items-center justify-between gap-4 overflow-hidden rounded-xl px-4 py-3.5"
+      className="cf-panel relative flex items-end justify-between gap-4 overflow-hidden rounded-xl px-4 py-3.5 sm:px-6 sm:py-5"
     >
       <div className="relative z-10 flex items-center gap-3.5 min-w-0">
         <EntityImage
@@ -94,7 +93,7 @@ function ContinueBar() {
           className={`h-12 w-12 rounded-lg bg-linear-to-br ${active.accent} shrink-0 border border-border-subtle`}
         />
         <div className="flex flex-col gap-1 min-w-0">
-          <div className="flex items-center gap-2 min-w-0">
+          <div className="flex items-center gap-2 min-w-0 flex-wrap">
             <BuildSwitcher />
             <Chip color="default" size="sm" variant="soft">
               <Chip.Label>{active.status}</Chip.Label>
@@ -136,9 +135,7 @@ function RecentActivityCard({
   return (
     <SpotlightCard className="cf-panel rounded-xl h-full overflow-hidden">
       <section className="p-4 flex flex-col min-h-0 h-full overflow-hidden">
-        <h3 className="text-[10px] font-semibold uppercase tracking-[0.16em] text-text-muted mb-3 shrink-0">
-          Recent Activity
-        </h3>
+        <h3 className="cf-section-label mb-3 shrink-0">Recent Activity</h3>
         <div className="flex flex-col gap-0.5 flex-1 min-h-0 overflow-y-auto scroll-hidden">
           {activity.length === 0 && (
             <div className="flex-1 flex items-center justify-center text-[11px] text-text-muted">
@@ -185,9 +182,7 @@ function LatestUpdateCard() {
   return (
     <SpotlightCard className="cf-panel rounded-xl h-full">
       <section className="p-4 flex flex-col h-full">
-        <h3 className="text-[10px] font-semibold uppercase tracking-[0.16em] text-text-muted mb-3">
-          Latest Update
-        </h3>
+        <h3 className="cf-section-label mb-3">Latest Update</h3>
         {latest ? (
           <>
             <div className="flex items-baseline justify-between gap-2 mb-2">
@@ -239,9 +234,7 @@ function QuickActionsCard() {
   return (
     <SpotlightCard className="cf-panel rounded-xl h-full">
       <section className="p-4 flex flex-col h-full">
-        <h3 className="text-[10px] font-semibold uppercase tracking-[0.16em] text-text-muted mb-2">
-          Your build
-        </h3>
+        <h3 className="cf-section-label mb-2">Your build</h3>
         <div className="flex flex-col gap-0.5 flex-1">
           {QUICK_ACTIONS.map((a) => (
             <motion.button

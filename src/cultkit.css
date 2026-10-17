@@ -2,7 +2,6 @@
 @tailwind utilities;
 @import "./fonts.css";
 @import "@heroui/styles";
-
 /* HeroUI OLED / forge overrides */
 :root,
 .dark,
@@ -391,6 +390,13 @@ html.cf-visual-idle .app-bg-video {
 
 .cf-header[data-header-variant="v7"] .cf-header-nav-item[data-active="true"] {
     background: color-mix(in srgb, var(--color-primary-base) 16%, transparent);
+}
+
+/* Keep Phosphor glyphs optically centered with labels */
+.cf-side-nav-item .cf-side-nav-icon,
+.cf-side-nav-item svg {
+    display: block;
+    flex-shrink: 0;
 }
 
 .cf-side-nav[data-side-variant="v1"][data-collapsed="false"] {
@@ -946,6 +952,23 @@ html.cf-visual-idle .app-bg-video {
 .cf-glass {
     background: var(--color-bg-surface);
     border-color: var(--color-border-subtle);
+}
+
+.cf-section-label {
+    font-size: 0.65rem;
+    font-weight: 800;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--color-text-muted);
+}
+
+.cf-stat-card {
+    position: relative;
+    overflow: hidden;
+    border-radius: 0.75rem;
+    border: 1px solid var(--color-border-subtle);
+    background: var(--color-bg-card);
+    padding: 1rem;
 }
 
 .cf-btn-primary {

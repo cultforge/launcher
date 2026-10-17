@@ -1,5 +1,6 @@
 import { useEffect, useState, type MouseEvent, type ReactNode } from "react";
 import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import { cn } from "../lib/cn";
 import { handleContentHref, isCultforgeDeepLink } from "../lib/deepLinks";
 import { resolveGuildMediaDisplayUrl } from "../lib/guildMedia";
@@ -82,24 +83,36 @@ export function RichMarkdown({
   return (
     <div
       className={cn(
-        "text-[13px] text-text-secondary leading-relaxed",
+        "cf-markdown text-[13px] text-text-secondary leading-relaxed",
         "[&_h1]:text-[18px] [&_h1]:font-semibold [&_h1]:text-text-primary [&_h1]:mt-4 [&_h1]:mb-2",
         "[&_h2]:text-[15px] [&_h2]:font-semibold [&_h2]:text-text-primary [&_h2]:mt-3 [&_h2]:mb-1.5",
         "[&_h3]:text-[14px] [&_h3]:font-semibold [&_h3]:text-text-primary [&_h3]:mt-3 [&_h3]:mb-1",
         "[&_p]:mb-2 [&_ul]:mb-2 [&_ul]:list-disc [&_ul]:pl-4 [&_ol]:mb-2 [&_ol]:list-decimal [&_ol]:pl-4",
         "[&_li]:mb-0.5",
+        "[&_hr]:my-4 [&_hr]:border-white/10",
+        "[&_strong]:text-text-primary [&_strong]:font-semibold",
         "[&_code]:rounded [&_code]:bg-black/30 [&_code]:px-1 [&_code]:py-0.5 [&_code]:text-[11px] [&_code]:font-mono",
         "[&_pre]:mb-2 [&_pre]:overflow-x-auto [&_pre]:rounded-lg [&_pre]:bg-black/35 [&_pre]:p-3 [&_pre]:text-[11px]",
         "[&_blockquote]:border-l-2 [&_blockquote]:border-white/15 [&_blockquote]:pl-3 [&_blockquote]:text-text-muted",
+        "[&_table]:mb-3 [&_table]:w-full [&_table]:border-collapse [&_table]:text-[12px]",
+        "[&_th]:border [&_th]:border-white/12 [&_th]:bg-black/25 [&_th]:px-2.5 [&_th]:py-1.5 [&_th]:text-left [&_th]:font-semibold [&_th]:text-text-primary",
+        "[&_td]:border [&_td]:border-white/10 [&_td]:px-2.5 [&_td]:py-1.5 [&_td]:align-top",
+        "[&_tr:nth-child(even)_td]:bg-white/[0.02]",
         className,
       )}
     >
       <ReactMarkdown
+        remarkPlugins={[remarkGfm]}
         components={{
           a: ({ href, children }) => (
             <ContentAnchor href={href}>{children}</ContentAnchor>
           ),
           img: ({ src, alt }) => <ProxiedImg src={src} alt={alt} />,
+          table: ({ children }) => (
+            <div className="cf-markdown-table my-3 w-full overflow-x-auto">
+              <table>{children}</table>
+            </div>
+          ),
         }}
       >
         {source}

@@ -30,7 +30,10 @@ export type BuildContentSummary = {
 export type GuildBuildModRef = {
   name: string;
   slug?: string;
+  /** Modrinth version_number (e.g. mc1.20.1-0.5.8) or "latest". */
   version?: string;
+  /** Stable Modrinth version id when known. */
+  versionId?: string;
   sourceUrl?: string;
 };
 

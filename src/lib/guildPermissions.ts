@@ -1,5 +1,97 @@
 import type { GuildMember, GuildRole } from "../data/guilds";
 
+/** Guild role permission ids for Minecraft server lifecycle / control. */
+export const SERVER_CONTROL_PERMISSION_IDS = [
+  "server.start",
+  "server.stop",
+  "server.restart",
+  "server.status",
+  "server.console.read",
+  "server.console.execute",
+  "server.config.read",
+  "server.config.update",
+  "builds.provision",
+  "backup.create",
+] as const;
+
+export type ServerControlPermissionId =
+  (typeof SERVER_CONTROL_PERMISSION_IDS)[number];
+
+export const SERVER_CONTROL_PERMISSION_CATALOG: {
+  id: ServerControlPermissionId;
+  group: string;
+  description: string;
+}[] = [
+  {
+    id: "server.start",
+    group: "servers",
+    description: "Start a guild Minecraft server",
+  },
+  {
+    id: "server.stop",
+    group: "servers",
+    description: "Stop a running guild Minecraft server",
+  },
+  {
+    id: "server.restart",
+    group: "servers",
+    description: "Restart a guild Minecraft server",
+  },
+  {
+    id: "server.status",
+    group: "servers",
+    description: "Read server run status from the host PC",
+  },
+  {
+    id: "server.console.read",
+    group: "servers",
+    description: "Read the live server console / log",
+  },
+  {
+    id: "server.console.execute",
+    group: "servers",
+    description: "Run console commands on the server",
+  },
+  {
+    id: "server.config.read",
+    group: "servers",
+    description: "Read server.properties",
+  },
+  {
+    id: "server.config.update",
+    group: "servers",
+    description: "Edit and save server.properties",
+  },
+  {
+    id: "builds.provision",
+    group: "servers",
+    description: "Install or provision a build onto a host PC",
+  },
+  {
+    id: "backup.create",
+    group: "servers",
+    description: "Create a server backup on the host PC",
+  },
+];
+
+/** True when the viewer may run a specific server control action. */
+export function canServerControlAction(
+  action: string,
+  opts: {
+    /** Personal / non-guild host — always allowed for the signed-in owner UI. */
+    guildScoped?: boolean;
+    permissions?: string[] | null;
+    isOwner?: boolean;
+    role?: GuildRole | null;
+  },
+): boolean {
+  if (!opts.guildScoped) return true;
+  if (opts.isOwner || opts.role === "Leader") return true;
+  const perms = opts.permissions ?? [];
+  if (perms.includes("guild.edit")) return true;
+  return perms.includes(action);
+}
+
 export type GuildCapabilities = {
   inviteMembers: boolean;
   manageMembers: boolean;

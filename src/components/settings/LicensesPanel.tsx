@@ -87,9 +87,10 @@ export function LicensesPanel({ preferMarkdown = true }: Props) {
         {!body ? (
           <p className="text-[12px] text-text-muted">Loading licenses…</p>
         ) : mode === "md" ? (
-          <div className="text-[12px] text-text-secondary leading-relaxed prose-invert">
-            <RichMarkdown source={body} />
-          </div>
+          <RichMarkdown
+            source={body}
+            className="[&_h1]:mt-0 [&_table]:text-[11px]"
+          />
         ) : (
           <pre className="whitespace-pre-wrap font-mono text-[11px] text-text-secondary leading-relaxed">
             {body}

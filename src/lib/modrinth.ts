@@ -138,7 +138,7 @@ export type ModrinthInstallPlan = {
 };
 
 const BASE = "https://api.modrinth.com/v2";
-const USER_AGENT = "CultForge/2.4.3 (launcher; https://github.com/CultForge)";
+const USER_AGENT = "CultForge/2.4.4 (launcher; https://github.com/CultForge)";
 
 async function modrinthFetch(path: string): Promise<Response> {
   const res = await fetch(`${BASE}${path}`, {
@@ -289,7 +289,7 @@ export function versionMatchesFilters(
     const wanted = normalizeLoader(loader);
     if (
       wanted &&
-      wanted !== "—" &&
+      wanted !== "â€”" &&
       wanted !== "-" &&
       wanted !== "vanilla" &&
       !version.loaders.some((entry) => normalizeLoader(entry) === wanted)

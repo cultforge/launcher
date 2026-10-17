@@ -185,6 +185,8 @@ export const BUILTIN_THEMES: LauncherTheme[] = [
   },
 ];
 
+export const BUILTIN_THEMES_ALL: LauncherTheme[] = [...BUILTIN_THEMES];
+
 export const DEFAULT_THEME_ID = BUILTIN_THEMES[0].id;
 export const MAX_CUSTOM_THEMES = 13;
 
@@ -228,6 +230,10 @@ export function applyThemeTokens(tokens: ThemeTokens) {
   root.style.setProperty("--muted-foreground", tokens.textMuted);
   root.style.setProperty("--border", tokens.borderStrong);
   root.style.setProperty("--success", tokens.success);
+  root.style.setProperty(
+    "--color-glow-primary",
+    `color-mix(in srgb, ${tokens.primaryBase} 28%, transparent)`,
+  );
   root.dataset.theme = tokens.primaryBase;
 }
 

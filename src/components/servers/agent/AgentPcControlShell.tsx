@@ -31,6 +31,7 @@ import {
 import { cn } from "../../../lib/cn";
 import { useGuildStore } from "../../../stores/guilds";
 import { usePersonalServersStore } from "../../../stores/personalServers";
+import { useAppStore } from "../../../userstore";
 import { humanizePcConnection } from "../../../lib/agentResultHumanize";
 import type { TelemetryTransportMode } from "../../../lib/cultAgentTelemetry";
 import { AgentAdvancedPanel } from "./AgentAdvancedPanel";
@@ -554,6 +555,10 @@ function AddServerForm({
     if (!pick) return;
     setBusy(true);
     try {
+      const me = useAppStore.getState().currentUser?.id ?? "";
+      if (me && node.ownerId && node.ownerId !== me) {
+        throw new Error("You can only bind servers to agents you own.");
+      }
       if (isGuild) {
         const selected = options.find((o) => o.id === pick) as
           | { id: string; name: string; guildId?: string }

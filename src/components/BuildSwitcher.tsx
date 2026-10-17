@@ -1,11 +1,18 @@
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import { toast } from "sonner";
 import { Icon } from "./ico";
 import { AppIcons } from "./icons";
 import { EntityImage } from "./EntityImage";
 import { useBuildStore } from "../stores/build";
 import { useBuildModalsStore } from "../stores/buildModals";
 import { cn } from "../lib/cn";
+import {
+  CfContextMenu,
+  type CfContextMenuEntry,
+  useContextMenuState,
+} from "./ui/CfContextMenu";
+import { logger } from "../lib/logger";
 
 type MenuPos = { top: number; left: number; width: number };
 
@@ -23,10 +30,13 @@ export function BuildSwitcher({
   const builds = useBuildStore((s) => s.builds);
   const activeId = useBuildStore((s) => s.activeId);
   const setActive = useBuildStore((s) => s.setActive);
+  const duplicateBuild = useBuildStore((s) => s.duplicateBuild);
   const openModal = useBuildModalsStore((s) => s.openModal);
   const active = useBuildStore((s) => s.active());
   const triggerRef = useRef<HTMLButtonElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
+  const ctx = useContextMenuState();
+  const [ctxBuildId, setCtxBuildId] = useState<string | null>(null);
 
   const updatePos = () => {
     const el = triggerRef.current;
@@ -74,6 +84,84 @@ export function BuildSwitcher({
     };
   }, [open]);
 
+  const ctxItems: CfContextMenuEntry[] = useMemo(() => {
+    const build =
+      builds.find((b) => b.id === ctxBuildId) ??
+      builds.find((b) => b.id === activeId) ??
+      active;
+    const managed = Boolean(build?.managed);
+    return [
+      {
+        id: "fast-clone",
+        label: "Fast Clone",
+        icon: AppIcons.Copy,
+        disabled: managed,
+        onSelect: () => {
+          if (!build || managed) {
+            toast.message("Cannot clone", {
+              description: "Guild-managed builds can’t be duplicated.",
+            });
+            return;
+          }
+          try {
+            const name = `Copy of ${build.name}`;
+            const id = duplicateBuild(build.id, name, {
+              full: true,
+              mods: true,
+              resourcepacks: true,
+              shaderpacks: true,
+              config: true,
+              worlds: true,
+            });
+            toast.success("Fast clone ready", { description: name });
+            logger.info(`Fast clone ${build.id} → ${id}`);
+          } catch (err) {
+            toast.error("Clone failed", {
+              description: err instanceof Error ? err.message : String(err),
+            });
+          }
+        },
+      },
+      {
+        id: "safe-clone",
+        label: "Safe Clone",
+        icon: AppIcons.Files,
+        disabled: managed,
+        onSelect: () => {
+          if (build && build.id !== activeId) setActive(build.id);
+          openModal("duplicate");
+        },
+      },
+      {
+        id: "settings",
+        label: "Settings",
+        icon: AppIcons.Settings,
+        onSelect: () => {
+          if (build && build.id !== activeId) setActive(build.id);
+          openModal("settings");
+        },
+      },
+      { type: "separator" },
+      {
+        id: "folder",
+        label: "Open folder",
+        icon: AppIcons.FolderOpen,
+        onSelect: () => {
+          if (build && build.id !== activeId) setActive(build.id);
+          openModal("folder");
+        },
+      },
+    ];
+  }, [
+    active,
+    activeId,
+    builds,
+    ctxBuildId,
+    duplicateBuild,
+    openModal,
+    setActive,
+  ]);
+
   return (
     <div className={cn("relative", className)}>
       {showLabel && (
@@ -85,10 +173,14 @@ export function BuildSwitcher({
         ref={triggerRef}
         type="button"
         onClick={() => setOpen((v) => !v)}
+        onContextMenu={(e) => {
+          setCtxBuildId(activeId);
+          ctx.openAt(e);
+        }}
         aria-expanded={open}
         aria-haspopup="listbox"
         className="flex items-center gap-1.5 text-left cursor-pointer group max-w-full"
-        title="Switch build"
+        title="Switch build · right-click for actions"
       >
         <span
           className={cn(
@@ -135,6 +227,10 @@ export function BuildSwitcher({
                     onClick={() => {
                       setActive(b.id);
                       setOpen(false);
+                    }}
+                    onContextMenu={(e) => {
+                      setCtxBuildId(b.id);
+                      ctx.openAt(e);
                     }}
                     className={cn(
                       "w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-left cursor-pointer transition-colors",
@@ -187,6 +283,15 @@ export function BuildSwitcher({
           </div>,
           document.body,
         )}
+
+      <CfContextMenu
+        open={ctx.open}
+        x={ctx.x}
+        y={ctx.y}
+        items={ctxItems}
+        onClose={ctx.close}
+        ariaLabel="Build actions"
+      />
     </div>
   );
 }

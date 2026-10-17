@@ -84,7 +84,7 @@ const homeSideNav: SMenu[] = [
 
 
 
-/** Side sections — Home tab uses builds hub nav; header owns Guilds, Mods, Servers, Store. */
+/** Side sections â€” Home tab uses builds hub nav; header owns Guilds, Mods, Servers, Store. */
 
 export const SideMenus: Record<PrimaryTab, SMenu[]> = {
 
@@ -182,5 +182,5 @@ export const DefaultConfig: Object = {};
 
 
 
-export const APP_VERSION = "2.4.3";
+export const APP_VERSION = "2.4.4";
 

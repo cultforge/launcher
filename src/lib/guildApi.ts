@@ -1,7 +1,10 @@
 import { ClientHttpError, send, sendMutate } from "./client";
 import type { Guild, GuildMember, GuildRole } from "../data/guilds";
 import { getGuild } from "../data/guilds";
-import { roleFromViewer } from "./guildPermissions";
+import {
+  roleFromViewer,
+  SERVER_CONTROL_PERMISSION_CATALOG,
+} from "./guildPermissions";
 import { parseDiscordGuildSource } from "./discordWidget";
 import {
   CacheKeys,
@@ -105,11 +108,33 @@ function tagFromName(name: string): string {
   return (letters.slice(0, 2) || "CF").toUpperCase();
 }
 
+function parseVerificationStatus(
+  raw: unknown,
+): Guild["verificationStatus"] {
+  const v = String(raw ?? "")
+    .trim()
+    .toLowerCase();
+  if (
+    v === "unverified" ||
+    v === "pending" ||
+    v === "verified" ||
+    v === "rejected" ||
+    v === "suspended"
+  ) {
+    return v;
+  }
+  return undefined;
+}
+
 export function guildFromCard(
   card: GuildManifestCard,
   index = 0,
 ): Guild {
   const existing = getGuild(card.id);
+  const cardRec = card as GuildManifestCard & {
+    verification_status?: string;
+    verificationStatus?: string;
+  };
   return {
     id: card.id,
     name: card.name,
@@ -131,6 +156,10 @@ export function guildFromCard(
     joined: true,
     // Cards don't include owner id; keep any previously known value.
     ownerId: existing?.ownerId,
+    verificationStatus:
+      parseVerificationStatus(
+        cardRec.verification_status ?? cardRec.verificationStatus,
+      ) ?? existing?.verificationStatus,
   };
 }
 
@@ -138,7 +167,10 @@ export function guildFromManifest(
   manifest: GuildUiManifest,
   index = 0,
 ): Guild {
-  const g = manifest.guild;
+  const g = manifest.guild as GuildUiManifest["guild"] & {
+    verification_status?: string;
+    verificationStatus?: string;
+  };
   return {
     id: g.id,
     name: g.name,
@@ -155,6 +187,9 @@ export function guildFromManifest(
       "linear-gradient(135deg,#1a1528_0%,#2d3a5c_35%,#1e2838_70%,#0f141c_100%)",
     joined: true,
     ownerId: g.owner_id,
+    verificationStatus: parseVerificationStatus(
+      g.verification_status ?? g.verificationStatus,
+    ),
     discordSource:
       typeof manifest.discord?.source === "string"
         ? manifest.discord.source
@@ -845,6 +880,108 @@ export async function createGuildRole(
     return created;
   } catch (err) {
     throw wrap("Could not create guild role", err);
+  }
+}
+
+/** PATCH /v1/guilds/{guild_id}/roles/{role_id} */
+export async function updateGuildRole(
+  guildId: string,
+  roleId: string,
+  input: {
+    name?: string;
+    colorHex?: string | null;
+    permissions?: string[];
+    rank?: number;
+  },
+): Promise<GuildRoleRecord> {
+  try {
+    const body: Record<string, unknown> = {
+      guild_id: guildId,
+      role_id: roleId,
+    };
+    if (input.name !== undefined) body.name = input.name;
+    if (input.colorHex !== undefined) body.color_hex = input.colorHex;
+    if (input.permissions !== undefined) body.permissions = input.permissions;
+    if (input.rank !== undefined) body.rank = input.rank;
+    const data = await sendMutate("guilds", "update_guild_role", body, "PATCH");
+    await invalidateApiCache(CacheKeys.guildRoles(guildId));
+    const updated = asRoleRecord(data);
+    if (!updated) {
+      throw new GuildApiError("Update role response was malformed", 502);
+    }
+    return updated;
+  } catch (err) {
+    throw wrap("Could not update guild role", err);
+  }
+}
+
+export type GuildPermissionCatalogEntry = {
+  id: string;
+  group: string;
+  description: string;
+};
+
+function mergePermissionCatalog(
+  remote: GuildPermissionCatalogEntry[],
+): GuildPermissionCatalogEntry[] {
+  const byId = new Map<string, GuildPermissionCatalogEntry>();
+  // Local server-control ids first so they appear even if the host catalog lags.
+  for (const entry of SERVER_CONTROL_PERMISSION_CATALOG) {
+    byId.set(entry.id, { ...entry });
+  }
+  for (const entry of remote) {
+    const id = entry.id.trim();
+    if (!id) continue;
+    byId.set(id, {
+      id,
+      group: entry.group.trim() || "general",
+      description: entry.description.trim(),
+    });
+  }
+  return [...byId.values()].sort(
+    (a, b) => a.group.localeCompare(b.group) || a.id.localeCompare(b.id),
+  );
+}
+
+/** GET /v1/guilds/permissions — frozen picker; never free-type unknown ids. */
+export async function fetchGuildPermissionCatalog(): Promise<
+  GuildPermissionCatalogEntry[]
+> {
+  try {
+    const { data } = await cachedRead({
+      key: "cache.guilds.permission_catalog.v2",
+      fetcher: async () => {
+        const raw = await send<unknown>(
+          "guilds",
+          "list_guild_permission_catalog",
+          {},
+        );
+        const unwrapped = unwrapPayload(raw, ["data", "items", "permissions"]);
+        const rows = Array.isArray(unwrapped)
+          ? unwrapped
+          : Array.isArray(raw)
+            ? raw
+            : [];
+        const remote = rows
+          .map((row) => {
+            const obj = asRecord(row);
+            if (!obj) return null;
+            const id = String(obj.id ?? "").trim();
+            if (!id) return null;
+            return {
+              id,
+              group: String(obj.group ?? "general").trim() || "general",
+              description: String(obj.description ?? "").trim(),
+            } satisfies GuildPermissionCatalogEntry;
+          })
+          .filter((x): x is GuildPermissionCatalogEntry => Boolean(x));
+        return mergePermissionCatalog(remote);
+      },
+    });
+    return mergePermissionCatalog(data);
+  } catch (err) {
+    // Offline / host lag — still expose server lifecycle perms in the role editor.
+    return mergePermissionCatalog([]);
   }
 }
 

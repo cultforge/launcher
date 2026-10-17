@@ -128,6 +128,13 @@ export function parseModRefs(raw: unknown): GuildBuildModRef[] {
     if (typeof obj.version === "string" && obj.version.trim()) {
       ref.version = obj.version.trim();
     }
+    const versionId =
+      typeof obj.version_id === "string" && obj.version_id.trim()
+        ? obj.version_id.trim()
+        : typeof obj.versionId === "string" && obj.versionId.trim()
+          ? obj.versionId.trim()
+          : "";
+    if (versionId) ref.versionId = versionId;
     const source =
       typeof obj.source_url === "string" && obj.source_url.trim()
         ? obj.source_url.trim()
@@ -145,9 +152,64 @@ export function modRefsToApi(refs: GuildBuildModRef[] | undefined): unknown[] | 
   return refs.map((m) => ({
     name: m.name,
     ...(m.slug ? { slug: m.slug } : {}),
-    ...(m.version ? { version: m.version } : {}),
+    ...(m.versionId
+      ? { version_id: m.versionId }
+      : m.version
+        ? { version: m.version }
+        : { version: "latest" }),
+    ...(m.version && m.versionId ? { version: m.version } : {}),
     ...(m.sourceUrl ? { source_url: m.sourceUrl } : {}),
   }));
+}
+
+export type InstallManifestUnresolved = {
+  slug?: string;
+  name?: string;
+  version?: string;
+  versionId?: string;
+  reason?: string;
+};
+
+/** Parse install_manifest.unresolved after save/refresh (bad pins, no silent latest). */
+export function parseUnresolvedPins(raw: unknown): InstallManifestUnresolved[] {
+  const root = asRecord(raw) ?? {};
+  const nested =
+    asRecord(root.data) ??
+    asRecord(root.manifest) ??
+    asRecord(root.install_manifest) ??
+    root;
+  const list = nested.unresolved ?? root.unresolved;
+  if (!Array.isArray(list)) return [];
+  const out: InstallManifestUnresolved[] = [];
+  for (const row of list) {
+    const obj = asRecord(row);
+    if (!obj) continue;
+    out.push({
+      slug:
+        typeof obj.slug === "string"
+          ? obj.slug
+          : typeof obj.name === "string"
+            ? obj.name
+            : undefined,
+      name: typeof obj.name === "string" ? obj.name : undefined,
+      version: typeof obj.version === "string" ? obj.version : undefined,
+      versionId:
+        typeof obj.version_id === "string"
+          ? obj.version_id
+          : typeof obj.versionId === "string"
+            ? obj.versionId
+            : undefined,
+      reason:
+        typeof obj.reason === "string"
+          ? obj.reason
+          : typeof obj.error === "string"
+            ? obj.error
+            : typeof obj.message === "string"
+              ? obj.message
+              : undefined,
+    });
+  }
+  return out;
 }
 
 function normalizeLoader(raw: string): string {
@@ -706,11 +768,16 @@ export async function fetchGuildBuildInstallManifest(
   }
 }
 
+export type RefreshInstallManifestResult = {
+  manifest: BuildManifest;
+  unresolved: InstallManifestUnresolved[];
+};
+
 /** POST /v1/guilds/{guild_id}/builds/{build_id}/manifest/refresh */
 export async function refreshGuildBuildInstallManifest(
   guildId: string,
   buildId: string,
-): Promise<BuildManifest> {
+): Promise<RefreshInstallManifestResult> {
   try {
     const raw = await sendMutate(
       "guilds",
@@ -718,7 +785,24 @@ export async function refreshGuildBuildInstallManifest(
       { guild_id: guildId, build_id: buildId },
       "POST",
     );
-    return parseGuildInstallManifest(raw, buildId);
+    const unresolved = parseUnresolvedPins(raw);
+    let manifest: BuildManifest;
+    try {
+      manifest = parseGuildInstallManifest(raw, buildId);
+    } catch (parseErr) {
+      if (unresolved.length) {
+        manifest = {
+          schemaVersion: 1,
+          releaseId: buildId,
+          generatedAt: new Date().toISOString(),
+          excludes: ["saves/**"],
+          files: [],
+        };
+      } else {
+        throw parseErr;
+      }
+    }
+    return { manifest, unresolved };
   } catch (err) {
     throw wrapError("Could not refresh guild build install manifest", err);
   }
