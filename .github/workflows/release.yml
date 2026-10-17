@@ -249,6 +249,15 @@ jobs:
 
           echo "Uploading:"
           cat "$filtered"
+          # Ensure the GitHub Release exists (tag push alone does not create it).
+          if ! gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "Creating release $TAG"
+            gh release create "$TAG" \
+              --repo "$GITHUB_REPOSITORY" \
+              --title "$TAG" \
+              --notes "CultForge $TAG" \
+              --latest
+          fi
           # shellcheck disable=SC2046
           gh release upload "$TAG" $(cat "$filtered") --repo "$GITHUB_REPOSITORY" --clobber
           rm -f "$files" "$filtered"
